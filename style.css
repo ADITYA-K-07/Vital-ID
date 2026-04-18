@@ -1,19 +1,26 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
 :root {
-  --green: #22c55e;        /* softer, more natural green */
+  --green: #22c55e;
   --green-soft: #22c55e22;
+  --green-border: #22c55e30;   /* subtle green border */
+  --green-dim: #22c55e80;      /* 50% opacity green, for muted accents */
+  --green-muted: #22c55e12;    /* very faint green background */
   --danger: #FF4444;
+  --warning: #FF9800;
 
   --black: #0a0a0a;
   --surface: #111111;
-
+  --surface-2: #161616;        /* slightly lighter surface */
+  --surface-3: #1c1c1c;        /* card / input backgrounds */
+  --surface-4: #222222;        /* avatar / elevated elements */
 
   --text-primary: #e5e5e5;
   --text-secondary: #9ca3af;
   --text-muted: #526852;
 
   --border: #1f1f1f;
+  --border-bright: #2a2a2a;    /* slightly more visible border */
 
   --font-mono: 'IBM Plex Mono', monospace;
   --font-sans: 'IBM Plex Sans', sans-serif;
