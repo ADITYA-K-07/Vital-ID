@@ -19,12 +19,8 @@ function mapProfile(raw: Record<string, unknown>): ProfileSummary {
     fullName: String(raw.full_name ?? mockDashboardData.profile.fullName),
     role: String(raw.role ?? mockDashboardData.profile.role),
     bloodType: String(raw.blood_type ?? mockDashboardData.profile.bloodType),
-    emergencyContact: String(
-      raw.emergency_contact ?? mockDashboardData.profile.emergencyContact
-    ),
-    insuranceProvider: String(
-      raw.insurance_provider ?? mockDashboardData.profile.insuranceProvider
-    ),
+    emergencyContact: String(raw.emergency_contact ?? mockDashboardData.profile.emergencyContact),
+    insuranceProvider: String(raw.insurance_provider ?? mockDashboardData.profile.insuranceProvider),
     dob: String(raw.dob ?? mockDashboardData.profile.dob)
   };
 }
@@ -52,10 +48,7 @@ function mapDiagnosis(raw: Record<string, unknown>): DiagnosisEntry {
     authorName: String(raw.author_name ?? "Care Team"),
     specialty: String(raw.specialty ?? "General"),
     note: String(raw.note ?? ""),
-    status:
-      raw.status === "Resolved" || raw.status === "Needs Review"
-        ? raw.status
-        : "Shared",
+    status: raw.status === "Resolved" || raw.status === "Needs Review" ? raw.status : "Shared",
     createdAt: String(raw.created_at),
     confidenceScore: Number(raw.confidence_score ?? 0.5)
   };
@@ -70,66 +63,38 @@ export async function getDashboardData(): Promise<DashboardData> {
     role: viewerRole,
     canViewSensitive: viewerRole === "doctor",
     licenseNumber: cookieStore.get(AUTH_LICENSE_COOKIE_NAME)?.value ?? null,
-    licenseVerified:
-      cookieStore.get(AUTH_LICENSE_VERIFIED_COOKIE_NAME)?.value === "true"
+    licenseVerified: cookieStore.get(AUTH_LICENSE_VERIFIED_COOKIE_NAME)?.value === "true"
   };
 
   if (!hasSupabaseEnv() || !accessToken || accessToken === DEMO_SESSION_TOKEN) {
-    return {
-      ...mockDashboardData,
-      viewer
-    };
+    return { ...mockDashboardData, viewer };
   }
 
   const supabase = createServerSupabaseClient(accessToken);
-
-  if (!supabase) {
-    return {
-      ...mockDashboardData,
-      viewer
-    };
-  }
+  if (!supabase) return { ...mockDashboardData, viewer };
 
   try {
     const [profileResult, recordsResult, diagnosesResult] = await Promise.all([
       supabase.from("profiles").select("*").limit(1).maybeSingle(),
-      supabase
-        .from("medical_records")
-        .select("*")
-        .order("recorded_at", { ascending: false })
-        .limit(6),
-      supabase
-        .from("diagnoses")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(8)
+      supabase.from("medical_records").select("*").order("recorded_at", { ascending: false }).limit(6),
+      supabase.from("diagnoses").select("*").order("created_at", { ascending: false }).limit(8)
     ]);
 
     return {
       ...mockDashboardData,
       demoMode: false,
       viewer,
-      profile:
-        profileResult.data && !profileResult.error
-          ? mapProfile(profileResult.data as Record<string, unknown>)
-          : mockDashboardData.profile,
-      medicalRecords:
-        recordsResult.data && !recordsResult.error && recordsResult.data.length > 0
-          ? recordsResult.data.map((record) =>
-              mapMedicalRecord(record as Record<string, unknown>)
-            )
-          : mockDashboardData.medicalRecords,
-      diagnoses:
-        diagnosesResult.data && !diagnosesResult.error && diagnosesResult.data.length > 0
-          ? diagnosesResult.data.map((entry) =>
-              mapDiagnosis(entry as Record<string, unknown>)
-            )
-          : mockDashboardData.diagnoses
+      profile: profileResult.data && !profileResult.error
+        ? mapProfile(profileResult.data as Record<string, unknown>)
+        : mockDashboardData.profile,
+      medicalRecords: recordsResult.data && !recordsResult.error && recordsResult.data.length > 0
+        ? recordsResult.data.map((r) => mapMedicalRecord(r as Record<string, unknown>))
+        : mockDashboardData.medicalRecords,
+      diagnoses: diagnosesResult.data && !diagnosesResult.error && diagnosesResult.data.length > 0
+        ? diagnosesResult.data.map((e) => mapDiagnosis(e as Record<string, unknown>))
+        : mockDashboardData.diagnoses
     };
   } catch {
-    return {
-      ...mockDashboardData,
-      viewer
-    };
+    return { ...mockDashboardData, viewer };
   }
 }

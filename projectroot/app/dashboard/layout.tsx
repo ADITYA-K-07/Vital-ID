@@ -2,11 +2,7 @@ import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { getDashboardData } from "@/lib/dashboard-data";
 import type { ReactNode } from "react";
 
-export default async function DashboardLayout({
-  children
-}: Readonly<{
-  children: ReactNode;
-}>) {
+export default async function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
   const data = await getDashboardData();
 
   return (

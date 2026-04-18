@@ -43,6 +43,40 @@ export interface MedicalRecord {
   medications: string[];
 }
 
+export interface TreatmentRecord {
+  id: string;
+  date: string;
+  doctorName: string;
+  specialty: string;
+  diagnosis: string;
+  treatment: string;
+  notes: string;
+  followUp?: string;
+}
+
+export interface MedicalHistoryEntry {
+  id: string;
+  date: string;
+  type: "Surgery" | "Hospitalization" | "Diagnosis" | "Procedure" | "Vaccination";
+  title: string;
+  description: string;
+  facility: string;
+  doctorName: string;
+}
+
+// Field-level visibility permissions set by doctor
+export interface FieldPermissions {
+  showAllergies: boolean;
+  showMedications: boolean;
+  showConditions: boolean;
+  showVitals: boolean;
+  showMedicalHistory: boolean;
+  showTreatmentHistory: boolean;
+  showPsychologicalInfo: boolean;
+  showEmergencyContact: boolean;
+  showInsurance: boolean;
+}
+
 export interface ProfileSummary {
   id: string;
   fullName: string;
@@ -60,6 +94,12 @@ export interface ViewerContext {
   licenseVerified: boolean;
 }
 
+export interface Alert {
+  id: string;
+  type: "warning" | "info" | "critical";
+  message: string;
+}
+
 export interface DashboardData {
   demoMode: boolean;
   viewer: ViewerContext;
@@ -68,4 +108,9 @@ export interface DashboardData {
   credentials: Credential[];
   diagnoses: DiagnosisEntry[];
   medicalRecords: MedicalRecord[];
+  treatmentHistory: TreatmentRecord[];
+  medicalHistory: MedicalHistoryEntry[];
+  fieldPermissions: FieldPermissions;
+  alerts: Alert[];
+  psychologicalInfo?: string;
 }

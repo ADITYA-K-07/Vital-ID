@@ -1,24 +1,21 @@
-import { DiagnosisWorkspace } from "@/components/dashboard/diagnosis-workspace";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { getDashboardData } from "@/lib/dashboard-data";
+import { redirect } from "next/navigation";
+import { CollaborativeForum } from "@/components/dashboard/collaborative-forum";
 
 export default async function DiagnosisPage() {
   const data = await getDashboardData();
+  if (data.viewer.role !== "doctor") redirect("/dashboard");
 
   return (
     <>
-      <PageHeader
-        eyebrow="Collaborative Diagnosis"
-        title="Case-based specialist collaboration"
-        description="Support multi-author diagnosis workflows where multiple care-team entries can be attached to a single case thread and reviewed together."
-        demoMode={data.demoMode}
-      />
-      <DiagnosisWorkspace
-        demoMode={data.demoMode}
-        initialEntries={data.diagnoses}
-        canEdit={data.viewer.role === "doctor"}
-        canViewSensitive={data.viewer.canViewSensitive}
-      />
+      <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/60 bg-white/70 p-6 backdrop-blur">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-teal-700">Collaborative Diagnosis</p>
+        <h1 className="font-serif text-3xl text-slate-900 lg:text-4xl">Global Case Forum</h1>
+        <p className="text-sm leading-7 text-slate-500 max-w-2xl">
+          Post difficult cases for the global doctor community to review. Browse open cases and share your expertise with fellow clinicians worldwide.
+        </p>
+      </div>
+      <CollaborativeForum initialCases={data.diagnoses} />
     </>
   );
 }
