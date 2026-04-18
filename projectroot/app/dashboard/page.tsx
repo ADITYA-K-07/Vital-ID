@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { NotesAnalyzer } from "@/components/dashboard/notes-analyzer";
+import { PatternDetector } from "@/components/dashboard/pattern-detector";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -75,6 +77,7 @@ export default async function DashboardPage() {
         demoMode={data.demoMode}
       />
 
+      {/* Stats Section */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
           <Card key={stat.label}>
@@ -93,6 +96,17 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </section>
+
+      {/* AI Features — Doctor Only */}
+      {canViewSensitive && (
+        <section className="grid gap-6 xl:grid-cols-2">
+          <NotesAnalyzer />
+          <PatternDetector
+            records={data.medicalRecords}
+            profile={data.profile}
+          />
+        </section>
+      )}
 
       <Tabs defaultValue="operations">
         <TabsList>

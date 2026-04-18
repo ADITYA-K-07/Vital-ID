@@ -1,6 +1,6 @@
 "use client";
 
-import { BrainCircuit, LoaderCircle, Users } from "lucide-react";
+import { BrainCircuit, LoaderCircle, Sparkles, Users } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,20 @@ interface DiagnosisWorkspaceProps {
   canViewSensitive: boolean;
 }
 
+// AI result types
+interface SimilarCase {
+  case_id: number;
+  description: string;
+}
+
+interface AIResult {
+  similar_cases: SimilarCase[];
+  common_patterns: string[];
+  suggested_diagnosis: string;
+  confidence: number;
+  references: string[];
+}
+
 export function DiagnosisWorkspace({
   demoMode,
   initialEntries,
@@ -41,6 +55,11 @@ export function DiagnosisWorkspace({
   const [note, setNote] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // AI state
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const caseIds = useMemo(
     () => Array.from(new Set(entries.map((entry) => entry.caseId))),
@@ -57,7 +76,6 @@ export function DiagnosisWorkspace({
       entries.reduce<Record<string, { authorName: string; specialty: string; count: number }>>(
         (accumulator, entry) => {
           const key = `${entry.authorName}-${entry.specialty}`;
-
           if (!accumulator[key]) {
             accumulator[key] = {
               authorName: entry.authorName,
@@ -65,7 +83,6 @@ export function DiagnosisWorkspace({
               count: 0
             };
           }
-
           accumulator[key].count += 1;
           return accumulator;
         },
@@ -73,6 +90,38 @@ export function DiagnosisWorkspace({
       )
     );
   }, [entries]);
+
+  // AI Assist function
+  const handleAIAssist = async () => {
+    setAiLoading(true);
+    setAiResult(null);
+    setAiError(null);
+
+    // Build symptoms and history from current case entries
+    const symptoms = filteredEntries.map((e) => e.note).join(", ");
+    const history = filteredEntries.map((e) => `${e.specialty}: ${e.note}`).join("; ");
+    const current_diagnosis = filteredEntries[0]?.status ?? "Unknown";
+
+    try {
+      const response = await fetch("http://localhost:8000/api/cases/similar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symptoms, history, current_diagnosis })
+      });
+
+      const data = await response.json();
+
+      // Parse the JSON string returned by the AI
+      const raw = data.similar_cases as string;
+      const cleaned = raw.replace(/```json|```/g, "").trim();
+      const parsed: AIResult = JSON.parse(cleaned);
+      setAiResult(parsed);
+    } catch {
+      setAiError("Failed to fetch AI analysis. Make sure the backend is running.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -110,13 +159,8 @@ export function DiagnosisWorkspace({
           .select()
           .single();
 
-        if (error) {
-          throw new Error(error.message);
-        }
-
-        if (data) {
-          newEntry.id = String(data.id ?? newEntry.id);
-        }
+        if (error) throw new Error(error.message);
+        if (data) newEntry.id = String(data.id ?? newEntry.id);
       }
 
       setEntries((current) => [newEntry, ...current]);
@@ -178,6 +222,83 @@ export function DiagnosisWorkspace({
                 ))}
               </div>
 
+              {/* AI ASSIST BUTTON */}
+              {canEdit && (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-teal-200 bg-teal-50 text-teal-800 hover:bg-teal-100"
+                    onClick={handleAIAssist}
+                    disabled={aiLoading}
+                  >
+                    {aiLoading ? (
+                      <>
+                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                        Analyzing with AI...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        AI Assist — Find Similar Cases
+                      </>
+                    )}
+                  </Button>
+
+                  {/* AI ERROR */}
+                  {aiError && (
+                    <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
+                      {aiError}
+                    </div>
+                  )}
+
+                  {/* AI RESULTS */}
+                  {aiResult && (
+                    <div className="rounded-3xl border border-teal-100 bg-teal-50/60 p-5 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-teal-700" />
+                        <p className="font-semibold text-teal-900">AI Analysis</p>
+                        <Badge variant="secondary">{aiResult.confidence}% confidence</Badge>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Suggested Diagnosis</p>
+                        <p className="font-semibold text-slate-800">{aiResult.suggested_diagnosis}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">Similar Cases</p>
+                        <div className="space-y-2">
+                          {aiResult.similar_cases.map((c) => (
+                            <div key={c.case_id} className="rounded-2xl bg-white border border-teal-100 px-4 py-3 text-sm text-slate-700">
+                              {c.description}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">Common Patterns</p>
+                        <div className="flex flex-wrap gap-2">
+                          {aiResult.common_patterns.map((pattern) => (
+                            <Badge key={pattern} variant="secondary">{pattern}</Badge>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">Investigate</p>
+                        <div className="flex flex-wrap gap-2">
+                          {aiResult.references.map((ref) => (
+                            <Badge key={ref} variant="outline" className="border-teal-200 text-teal-800">{ref}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-4">
                 {filteredEntries.map((entry) => (
                   <div
@@ -213,7 +334,7 @@ export function DiagnosisWorkspace({
                     <p className="mt-4 leading-7 text-slate-700">
                       {canViewSensitive
                         ? entry.note
-                        : "Internal clinician notes are hidden in patient mode. The current status remains visible without exposing protected review details."}
+                        : "Internal clinician notes are hidden in patient mode."}
                     </p>
                     <div className="mt-4 text-xs uppercase tracking-[0.22em] text-slate-400">
                       Confidence {Math.round(entry.confidenceScore * 100)}%
@@ -244,8 +365,7 @@ export function DiagnosisWorkspace({
                       </div>
                     </div>
                     <p className="mt-4 text-sm text-slate-600">
-                      {contributor.count} updates contributed across active case
-                      discussions.
+                      {contributor.count} updates contributed across active case discussions.
                     </p>
                   </div>
                 ))}
@@ -268,27 +388,15 @@ export function DiagnosisWorkspace({
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <Label htmlFor="case-id">Case ID</Label>
-                <Input
-                  id="case-id"
-                  value={caseId}
-                  onChange={(event) => setCaseId(event.target.value)}
-                />
+                <Input id="case-id" value={caseId} onChange={(e) => setCaseId(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="author-name">Author</Label>
-                <Input
-                  id="author-name"
-                  value={authorName}
-                  onChange={(event) => setAuthorName(event.target.value)}
-                />
+                <Input id="author-name" value={authorName} onChange={(e) => setAuthorName(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="specialty">Specialty</Label>
-                <Input
-                  id="specialty"
-                  value={specialty}
-                  onChange={(event) => setSpecialty(event.target.value)}
-                />
+                <Input id="specialty" value={specialty} onChange={(e) => setSpecialty(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="status">Entry status</Label>
@@ -296,9 +404,7 @@ export function DiagnosisWorkspace({
                   id="status"
                   className="flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={status}
-                  onChange={(event) =>
-                    setStatus(event.target.value as DiagnosisEntry["status"])
-                  }
+                  onChange={(e) => setStatus(e.target.value as DiagnosisEntry["status"])}
                 >
                   <option value="Shared">Shared</option>
                   <option value="Needs Review">Needs Review</option>
@@ -311,21 +417,18 @@ export function DiagnosisWorkspace({
                   id="note"
                   placeholder="Add your specialist observation, recommendation, or follow-up request..."
                   value={note}
-                  onChange={(event) => setNote(event.target.value)}
+                  onChange={(e) => setNote(e.target.value)}
                   required
                 />
               </div>
-              {feedback ? (
+              {feedback && (
                 <div className="rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-800">
                   {feedback}
                 </div>
-              ) : null}
+              )}
               <Button className="w-full" type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
-                  <>
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
-                    Publishing entry
-                  </>
+                  <><LoaderCircle className="h-4 w-4 animate-spin" /> Publishing entry</>
                 ) : (
                   "Share diagnosis update"
                 )}
