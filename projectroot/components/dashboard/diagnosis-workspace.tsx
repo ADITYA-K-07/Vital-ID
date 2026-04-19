@@ -16,7 +16,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type ApiSimilarCasesResponse,
+  fetchFastApiJson,
+  getBrowserAccessToken
+} from "@/lib/fastapi";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 import { formatDateTime } from "@/lib/utils";
 import type { DiagnosisEntry } from "@/types";
 
@@ -103,19 +109,30 @@ export function DiagnosisWorkspace({
     const current_diagnosis = filteredEntries[0]?.status ?? "Unknown";
 
     try {
-      const response = await fetch("http://localhost:8000/api/cases/similar", {
+      const accessToken = getBrowserAccessToken();
+
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        setAiResult({
+          similar_cases: [
+            { case_id: 1, description: "Comparable demo case with overlapping symptom progression." },
+            { case_id: 2, description: "Demo case emphasizing similar timeline and specialty overlap." },
+            { case_id: 3, description: "Demo case highlighting comparable triage uncertainty." }
+          ],
+          common_patterns: ["Demo differential review", "History correlation", "Specialist follow-up"],
+          suggested_diagnosis: current_diagnosis,
+          confidence: 70,
+          references: ["Review prior records", "Compare treatment response", "Escalate to specialty input"]
+        });
+        return;
+      }
+
+      const data = await fetchFastApiJson<ApiSimilarCasesResponse>("/api/cases/similar", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        accessToken,
         body: JSON.stringify({ symptoms, history, current_diagnosis })
       });
 
-      const data = await response.json();
-
-      // Parse the JSON string returned by the AI
-      const raw = data.similar_cases as string;
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      const parsed: AIResult = JSON.parse(cleaned);
-      setAiResult(parsed);
+      setAiResult(data);
     } catch {
       setAiError("Failed to fetch AI analysis. Make sure the backend is running.");
     } finally {

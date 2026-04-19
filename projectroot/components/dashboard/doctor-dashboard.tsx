@@ -26,13 +26,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  type ApiPatientFullProfileResponse,
+  type PatientLookupData,
+  fetchFastApiJson,
+  getBrowserAccessToken,
+  mapApiPatientFullProfileToLookup
+} from "@/lib/fastapi";
+import { mockDashboardData } from "@/lib/mock-data";
+import {
   AUTH_COOKIE_NAME,
   AUTH_LICENSE_COOKIE_NAME,
   AUTH_LICENSE_VERIFIED_COOKIE_NAME,
   AUTH_ROLE_COOKIE_NAME,
+  DEMO_SESSION_TOKEN,
   createBrowserSupabaseClient
 } from "@/lib/supabase/client";
-import { mockDashboardData } from "@/lib/mock-data";
+//import { mockDashboardData } from "@/lib/mock-data";
 import type { DashboardData } from "@/types";
 
 type AccessMethod = "manual" | "qr";
@@ -44,7 +53,7 @@ export function DoctorDashboard() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [patientData, setPatientData] = useState<DashboardData | null>(null);
+  const [patientData, setPatientData] = useState<PatientLookupData | null>(null);
   const [showAddDiagnosis, setShowAddDiagnosis] = useState(false);
   const [showAddTreatment, setShowAddTreatment] = useState(false);
   const [diagnosisNote, setDiagnosisNote] = useState("");
@@ -100,7 +109,7 @@ export function DoctorDashboard() {
     if (!diagnosisNote.trim()) return;
     setSaveStatus("Saving...");
     await new Promise((r) => setTimeout(r, 600));
-    setSaveStatus("Diagnosis added successfully.");
+    setSaveStatus("Diagnosis added locally. Route wiring can be layered on next.");
     setDiagnosisNote("");
     setShowAddDiagnosis(false);
     setTimeout(() => setSaveStatus(null), 3000);
@@ -110,7 +119,7 @@ export function DoctorDashboard() {
     if (!treatmentNote.trim()) return;
     setSaveStatus("Saving...");
     await new Promise((r) => setTimeout(r, 600));
-    setSaveStatus("Treatment record added successfully.");
+    setSaveStatus("Treatment record added locally. Route wiring can be layered on next.");
     setTreatmentNote("");
     setShowAddTreatment(false);
     setTimeout(() => setSaveStatus(null), 3000);
@@ -121,7 +130,6 @@ export function DoctorDashboard() {
 
   return (
     <>
-      {/* Header */}
       <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/60 bg-white/70 p-6 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-teal-700">Doctor Dashboard</p>
@@ -260,7 +268,6 @@ export function DoctorDashboard() {
         </CardContent>
       </Card>
 
-      {/* Patient info — shown after lookup */}
       {p && latest && (
         <>
           <div className="grid gap-6 lg:grid-cols-2">
@@ -276,12 +283,12 @@ export function DoctorDashboard() {
                   {[
                     { label: "Full Name", value: p.profile.fullName },
                     { label: "Blood Type", value: p.profile.bloodType },
-                    { label: "Date of Birth", value: p.profile.dob },
+                    { label: "Date of Birth", value: p.profile.dob || "Not provided" },
                     { label: "Insurance", value: p.profile.insuranceProvider }
-                  ].map((f) => (
-                    <div key={f.label} className="rounded-xl bg-slate-50 px-4 py-3">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{f.label}</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">{f.value}</p>
+                  ].map((field) => (
+                    <div key={field.label} className="rounded-xl bg-slate-50 px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{field.label}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{field.value}</p>
                     </div>
                   ))}
                 </div>
@@ -305,21 +312,21 @@ export function DoctorDashboard() {
                   {[
                     { label: "Blood Pressure", value: latest.bloodPressure },
                     { label: "Heart Rate", value: `${latest.heartRate} bpm` },
-                    { label: "O₂ Saturation", value: `${latest.oxygenSaturation}%` },
+                    { label: "O2 Saturation", value: `${latest.oxygenSaturation}%` },
                     { label: "Temperature", value: latest.temperature },
                     { label: "Height", value: `${latest.heightCm} cm` },
                     { label: "Weight", value: `${latest.weightKg} kg` }
-                  ].map((v) => (
-                    <div key={v.label} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{v.label}</p>
-                      <p className="mt-0.5 text-sm font-bold text-slate-900">{v.value}</p>
+                  ].map((vital) => (
+                    <div key={vital.label} className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{vital.label}</p>
+                      <p className="mt-0.5 text-sm font-bold text-slate-900">{vital.value}</p>
                     </div>
                   ))}
                 </div>
                 <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-[10px] uppercase tracking-wide text-amber-600 mb-2">Allergies</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {latest.allergies.map((a) => <Badge key={a} variant="warning">{a}</Badge>)}
+                    {p.allergies?.map((allergy) => <Badge key={allergy} variant="warning">{allergy}</Badge>)}
                   </div>
                 </div>
               </CardContent>
@@ -335,11 +342,11 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {latest.medications.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                {latest.medications.map((medication, index) => (
+                  <div key={`${medication}-${index}`} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="h-2 w-2 rounded-full bg-teal-500" />
-                      <p className="text-sm font-medium text-slate-900">{m}</p>
+                      <p className="text-sm font-medium text-slate-900">{medication}</p>
                     </div>
                     <Badge variant="secondary">Active</Badge>
                   </div>
@@ -355,10 +362,10 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {latest.conditions.map((c, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                {p.conditions?.map((condition, index) => (
+                  <div key={`${condition}-${index}`} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
                     <div className="h-2 w-2 rounded-full bg-rose-400" />
-                    <p className="text-sm font-medium text-slate-900">{c}</p>
+                    <p className="text-sm font-medium text-slate-900">{condition}</p>
                   </div>
                 ))}
               </CardContent>

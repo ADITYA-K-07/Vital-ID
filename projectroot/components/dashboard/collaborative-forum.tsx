@@ -3,15 +3,15 @@
 import {
   Globe,
   Plus,
-  Upload,
   MessageSquare,
   Clock,
   ChevronDown,
   ChevronUp,
   Stethoscope,
-  X
+  X,
+  LoaderCircle
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,91 +19,212 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type ApiForumCaseItem,
+  type ApiForumCommentItem,
+  type ApiMeResponse,
+  buildCaseDisplayId,
+  fetchFastApiJson,
+  getBrowserAccessToken
+} from "@/lib/fastapi";
 import { formatDateTime } from "@/lib/utils";
-import type { DiagnosisEntry } from "@/types";
-
-// Mock global cases from other doctors
-const globalCases: DiagnosisEntry[] = [
-  {
-    id: "g-01",
-    caseId: "CASE-3891",
-    authorName: "Dr. Rahul Verma",
-    specialty: "Neurology",
-    note: "Patient 38F presenting with recurring focal seizures unresponsive to standard AEDs. MRI shows subtle cortical dysplasia. Seeking input on surgical candidacy criteria and pre-surgical workup recommendations.",
-    status: "Needs Review",
-    createdAt: "2026-04-18T09:00:00.000Z",
-    confidenceScore: 0
-  },
-  {
-    id: "g-02",
-    caseId: "CASE-3754",
-    authorName: "Dr. Amelia Fernandez",
-    specialty: "Rheumatology",
-    note: "Male 52, ANA positive, joint inflammation, skin rash, elevated CRP. DMARD therapy started but minimal response after 3 months. Overlap syndrome suspected. Seeking differential diagnosis support.",
-    status: "Shared",
-    createdAt: "2026-04-17T14:30:00.000Z",
-    confidenceScore: 0
-  },
-  {
-    id: "g-03",
-    caseId: "CASE-3612",
-    authorName: "Dr. James Okafor",
-    specialty: "Hepatology",
-    note: "Child 9M with unexplained hepatomegaly and elevated liver enzymes. Wilson's disease and metabolic disorders ruled out. Liver biopsy pending. Any experience with similar pediatric presentations?",
-    status: "Needs Review",
-    createdAt: "2026-04-16T11:00:00.000Z",
-    confidenceScore: 0
-  }
-];
+import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 
 interface ReplyState {
   [caseId: string]: string;
 }
 
-interface CollaborativeForumProps {
-  initialCases: DiagnosisEntry[];
-}
+const demoCases: ApiForumCaseItem[] = [
+  {
+    id: "g-01",
+    doctor_id: "demo-doctor",
+    author_name: "Dr. Rahul Verma",
+    title: "Recurring focal seizures",
+    specialty: "Neurology",
+    description:
+      "Patient 38F presenting with recurring focal seizures unresponsive to standard AEDs. MRI shows subtle cortical dysplasia. Seeking input on surgical candidacy criteria and pre-surgical workup recommendations.",
+    status: "Needs Review",
+    created_at: "2026-04-18T09:00:00.000Z"
+  },
+  {
+    id: "g-02",
+    doctor_id: "demo-peer",
+    author_name: "Dr. Amelia Fernandez",
+    title: "Inflammatory overlap concern",
+    specialty: "Rheumatology",
+    description:
+      "Male 52, ANA positive, joint inflammation, skin rash, elevated CRP. DMARD therapy started but minimal response after 3 months. Overlap syndrome suspected. Seeking differential diagnosis support.",
+    status: "Shared",
+    created_at: "2026-04-17T14:30:00.000Z"
+  }
+];
 
-export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
+export function CollaborativeForum() {
   const [showPostForm, setShowPostForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"global" | "my">("global");
   const [replies, setReplies] = useState<ReplyState>({});
   const [openReply, setOpenReply] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<string | null>(null);
+  const [cases, setCases] = useState<ApiForumCaseItem[]>([]);
+  const [commentsByCase, setCommentsByCase] = useState<Record<string, ApiForumCommentItem[]>>({});
+  const [currentDoctorId, setCurrentDoctorId] = useState<string | null>(null);
+  const [loadingCases, setLoadingCases] = useState(true);
+  const [loadingCommentsFor, setLoadingCommentsFor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // New case form state
   const [caseTitle, setCaseTitle] = useState("");
   const [caseSpecialty, setCaseSpecialty] = useState("");
   const [caseDescription, setCaseDescription] = useState("");
-  const [myCases, setMyCases] = useState<DiagnosisEntry[]>(initialCases);
+
+  useEffect(() => {
+    void loadForum();
+  }, []);
+
+  async function loadForum() {
+    setLoadingCases(true);
+    setError(null);
+    try {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        setCases(demoCases);
+        setCurrentDoctorId("demo-doctor");
+        return;
+      }
+
+      const [me, casesResponse] = await Promise.all([
+        fetchFastApiJson<ApiMeResponse>("/api/me", { accessToken }),
+        fetchFastApiJson<{ cases: ApiForumCaseItem[] }>("/api/forum/cases", { accessToken })
+      ]);
+
+      setCurrentDoctorId(me.profile_id);
+      setCases(casesResponse.cases);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to load forum cases."
+      );
+    } finally {
+      setLoadingCases(false);
+    }
+  }
+
+  async function loadComments(caseId: string) {
+    if (commentsByCase[caseId]) return;
+
+    setLoadingCommentsFor(caseId);
+    try {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        setCommentsByCase((current) => ({
+          ...current,
+          [caseId]: []
+        }));
+        return;
+      }
+
+      const response = await fetchFastApiJson<{ comments: ApiForumCommentItem[] }>(
+        `/api/forum/cases/${encodeURIComponent(caseId)}/comments`,
+        { accessToken }
+      );
+      setCommentsByCase((current) => ({
+        ...current,
+        [caseId]: response.comments
+      }));
+    } catch (caughtError) {
+      setSavedStatus(
+        caughtError instanceof Error ? caughtError.message : "Unable to load comments."
+      );
+    } finally {
+      setLoadingCommentsFor(null);
+    }
+  }
 
   const handlePostCase = async () => {
     if (!caseTitle.trim() || !caseDescription.trim()) return;
-    const newCase: DiagnosisEntry = {
-      id: `my-${Date.now()}`,
-      caseId: `CASE-${Math.floor(Math.random() * 9000 + 1000)}`,
-      authorName: "You",
-      specialty: caseSpecialty || "General Medicine",
-      note: `${caseTitle}\n\n${caseDescription}`,
-      status: "Shared",
-      createdAt: new Date().toISOString(),
-      confidenceScore: 0
-    };
-    setMyCases((prev) => [newCase, ...prev]);
-    setCaseTitle("");
-    setCaseSpecialty("");
-    setCaseDescription("");
-    setShowPostForm(false);
-    setSavedStatus("Case posted successfully to the global forum.");
-    setTimeout(() => setSavedStatus(null), 4000);
+
+    try {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        const demoCase: ApiForumCaseItem = {
+          id: `demo-${Date.now()}`,
+          doctor_id: currentDoctorId ?? "demo-doctor",
+          author_name: "You",
+          title: caseTitle,
+          specialty: caseSpecialty || "General Medicine",
+          description: caseDescription,
+          status: "Shared",
+          created_at: new Date().toISOString()
+        };
+        setCases((current) => [demoCase, ...current]);
+      } else {
+        const created = await fetchFastApiJson<ApiForumCaseItem>("/api/forum/cases", {
+          method: "POST",
+          accessToken,
+          body: JSON.stringify({
+            title: caseTitle,
+            specialty: caseSpecialty || "General Medicine",
+            description: caseDescription,
+            status: "Shared"
+          })
+        });
+        setCases((current) => [created, ...current]);
+      }
+
+      setCaseTitle("");
+      setCaseSpecialty("");
+      setCaseDescription("");
+      setShowPostForm(false);
+      setSavedStatus("Case posted successfully to the global forum.");
+      setTimeout(() => setSavedStatus(null), 4000);
+    } catch (caughtError) {
+      setSavedStatus(
+        caughtError instanceof Error ? caughtError.message : "Unable to post case."
+      );
+    }
   };
 
-  const handleReply = (caseId: string) => {
-    if (!replies[caseId]?.trim()) return;
-    setSavedStatus("Your solution has been shared with the case author.");
-    setReplies((prev) => ({ ...prev, [caseId]: "" }));
-    setOpenReply(null);
-    setTimeout(() => setSavedStatus(null), 4000);
+  const handleReply = async (caseId: string) => {
+    const reply = replies[caseId];
+    if (!reply?.trim()) return;
+
+    try {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        const newComment: ApiForumCommentItem = {
+          id: `demo-comment-${Date.now()}`,
+          case_id: caseId,
+          doctor_id: currentDoctorId ?? "demo-doctor",
+          author_name: "You",
+          comment: reply,
+          created_at: new Date().toISOString()
+        };
+        setCommentsByCase((current) => ({
+          ...current,
+          [caseId]: [...(current[caseId] ?? []), newComment]
+        }));
+      } else {
+        const created = await fetchFastApiJson<ApiForumCommentItem>(
+          `/api/forum/cases/${encodeURIComponent(caseId)}/comments`,
+          {
+            method: "POST",
+            accessToken,
+            body: JSON.stringify({ comment: reply })
+          }
+        );
+        setCommentsByCase((current) => ({
+          ...current,
+          [caseId]: [...(current[caseId] ?? []), created]
+        }));
+      }
+
+      setSavedStatus("Your solution has been shared with the case thread.");
+      setReplies((current) => ({ ...current, [caseId]: "" }));
+      setOpenReply(null);
+      setTimeout(() => setSavedStatus(null), 4000);
+    } catch (caughtError) {
+      setSavedStatus(
+        caughtError instanceof Error ? caughtError.message : "Unable to post comment."
+      );
+    }
   };
 
   const statusVariant = (status: string) => {
@@ -112,63 +233,110 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
     return "secondary";
   };
 
-  const CaseCard = ({ c, showReply }: { c: DiagnosisEntry; showReply: boolean }) => (
-    <Card key={c.id}>
-      <CardContent className="pt-5 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-0.5">{c.caseId}</span>
-              <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <Clock className="h-3 w-3" /> {formatDateTime(c.createdAt)}
-              </span>
-            </div>
-            <p className="flex items-center gap-1.5 text-sm text-slate-600">
-              <Stethoscope className="h-3.5 w-3.5 text-slate-400" />
-              <span className="font-medium">{c.authorName}</span>
-              <span className="text-slate-400">·</span>
-              <span>{c.specialty}</span>
-            </p>
-          </div>
-        </div>
-        <p className="text-sm text-slate-700 leading-7">{c.note}</p>
+  const visibleCases =
+    activeTab === "global"
+      ? cases
+      : cases.filter((item) => item.doctor_id === currentDoctorId);
 
-        {showReply && (
-          <div>
-            {openReply === c.id ? (
-              <div className="space-y-3 border-t border-border/50 pt-4">
-                <Label>Your solution or suggestion</Label>
-                <Textarea
-                  placeholder="Share your clinical insight, diagnosis suggestion, or recommended next steps..."
-                  rows={3}
-                  value={replies[c.id] ?? ""}
-                  onChange={(e) => setReplies((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                />
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => handleReply(c.id)} className="gap-1.5">
-                    <MessageSquare className="h-3.5 w-3.5" /> Share Solution
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setOpenReply(null)}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+  const CaseCard = ({ c, showReply }: { c: ApiForumCaseItem; showReply: boolean }) => {
+    const comments = commentsByCase[c.id] ?? [];
+
+    return (
+      <Card key={c.id}>
+        <CardContent className="pt-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-0.5">
+                  {buildCaseDisplayId(c.id)}
+                </span>
+                <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
+                <span className="text-xs text-slate-400 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {c.created_at ? formatDateTime(c.created_at) : "Just now"}
+                </span>
               </div>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 mt-1"
-                onClick={() => setOpenReply(c.id)}
-              >
-                <MessageSquare className="h-3.5 w-3.5" /> Respond to this case
-              </Button>
-            )}
+              <p className="flex items-center gap-1.5 text-sm text-slate-600">
+                <Stethoscope className="h-3.5 w-3.5 text-slate-400" />
+                <span className="font-medium">{c.author_name}</span>
+                <span className="text-slate-400">.</span>
+                <span>{c.specialty ?? "General Medicine"}</span>
+              </p>
+            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+
+          <div className="space-y-2">
+            <p className="font-semibold text-slate-900">{c.title}</p>
+            <p className="text-sm text-slate-700 leading-7">{c.description}</p>
+            {c.symptoms ? (
+              <p className="text-xs text-slate-500 uppercase tracking-wide">Symptoms: {c.symptoms}</p>
+            ) : null}
+          </div>
+
+          {comments.length > 0 && (
+            <div className="space-y-2 border-t border-border/50 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Thread Replies
+              </p>
+              {comments.map((comment) => (
+                <div key={comment.id} className="rounded-2xl border border-border/60 bg-slate-50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-slate-900">{comment.author_name}</p>
+                    <p className="text-xs text-slate-400">
+                      {comment.created_at ? formatDateTime(comment.created_at) : "Just now"}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-700">{comment.comment}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showReply && (
+            <div>
+              {openReply === c.id ? (
+                <div className="space-y-3 border-t border-border/50 pt-4">
+                  {loadingCommentsFor === c.id ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      Loading replies...
+                    </div>
+                  ) : null}
+
+                  <Label>Your solution or suggestion</Label>
+                  <Textarea
+                    placeholder="Share your clinical insight, diagnosis suggestion, or recommended next steps..."
+                    rows={3}
+                    value={replies[c.id] ?? ""}
+                    onChange={(e) => setReplies((current) => ({ ...current, [c.id]: e.target.value }))}
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleReply(c.id)} className="gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5" /> Share Solution
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setOpenReply(null)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 mt-1"
+                  onClick={() => {
+                    setOpenReply(c.id);
+                    void loadComments(c.id);
+                  }}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" /> Respond to this case
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <>
@@ -176,7 +344,10 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
         <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">{savedStatus}</div>
       )}
 
-      {/* Tabs + Post button */}
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-2">
           <Button
@@ -202,12 +373,11 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
         </Button>
       </div>
 
-      {/* Post form */}
       {showPostForm && (
         <Card className="border-teal-200 bg-teal-50/50">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Post a Difficult Case</CardTitle>
-            <CardDescription>Share anonymized patient info, scans, and describe the clinical challenge. Doctors worldwide can respond.</CardDescription>
+            <CardDescription>Share anonymized patient context and describe the clinical challenge. Doctors worldwide can respond.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -230,9 +400,6 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
               />
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" className="gap-1.5" size="sm">
-                <Upload className="h-3.5 w-3.5" /> Attach Scans / Reports
-              </Button>
               <Button onClick={handlePostCase} className="gap-1.5">
                 <Globe className="h-3.5 w-3.5" /> Post to Global Forum
               </Button>
@@ -241,26 +408,28 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
         </Card>
       )}
 
-      {/* Cases list */}
       <div className="space-y-4">
-        {activeTab === "global" ? (
-          <>
-            <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{globalCases.length} open cases from doctors worldwide</p>
-            {globalCases.map((c) => <CaseCard key={c.id} c={c} showReply={true} />)}
-          </>
+        {loadingCases ? (
+          <Card>
+            <CardContent className="pt-6 flex items-center gap-2 text-sm text-slate-500">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              Loading forum cases...
+            </CardContent>
+          </Card>
         ) : (
           <>
-            <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{myCases.length} cases you've posted</p>
-            {myCases.length === 0 ? (
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">
+              {visibleCases.length} {activeTab === "global" ? "open cases from doctors worldwide" : "cases you've posted"}
+            </p>
+            {visibleCases.length === 0 ? (
               <Card>
                 <CardContent className="pt-6 text-center text-slate-400">
                   <Globe className="h-8 w-8 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">You haven't posted any cases yet.</p>
-                  <p className="text-xs mt-1">Use the "Post a Case" button to get help from the global community.</p>
+                  <p className="text-sm">No cases available in this view yet.</p>
                 </CardContent>
               </Card>
             ) : (
-              myCases.map((c) => <CaseCard key={c.id} c={c} showReply={false} />)
+              visibleCases.map((c) => <CaseCard key={c.id} c={c} showReply={activeTab === "global"} />)
             )}
           </>
         )}

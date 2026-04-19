@@ -8,18 +8,49 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type ApiNotesAnalyzeResponse,
+  type PatientLookupData,
+  fetchFastApiJson,
+  getBrowserAccessToken
+} from "@/lib/fastapi";
+import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 
-interface AnalysisResult {
-  symptoms: string[];
-  possible_conditions: string[];
-  suggested_next_steps: string[];
-  severity: "low" | "medium" | "high";
+interface NotesAnalyzerProps {
+  selectedPatient: PatientLookupData | null;
 }
 
-export function NotesAnalyzer() {
+function buildDemoAnalysis(notes: string, patientName?: string): ApiNotesAnalyzeResponse {
+  const normalized = notes.toLowerCase();
+  const symptoms = ["headache", "dizziness", "fatigue", "cough"].filter((item) =>
+    normalized.includes(item)
+  );
+  const conditions = normalized.includes("bp") || normalized.includes("pressure")
+    ? ["Blood pressure concern"]
+    : ["General clinical review recommended"];
+
+  return {
+    symptoms: symptoms.length > 0 ? symptoms : ["No obvious symptom keywords detected"],
+    possible_conditions: conditions,
+    suggested_next_steps: [
+      "Review the note alongside the latest vitals.",
+      patientName
+        ? `Reconcile the note against ${patientName}'s current chart.`
+        : "Reconcile the note against the patient's current chart.",
+      "Escalate if symptoms worsen or repeat."
+    ],
+    severity: normalized.includes("chest pain") || normalized.includes("shortness of breath")
+      ? "high"
+      : normalized.includes("bp") || normalized.includes("dizziness")
+        ? "medium"
+        : "low"
+  };
+}
+
+export function NotesAnalyzer({ selectedPatient }: NotesAnalyzerProps) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<ApiNotesAnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const severityColor = {
@@ -29,25 +60,35 @@ export function NotesAnalyzer() {
   } as const;
 
   const handleAnalyze = async () => {
-    if (!notes.trim()) return;
+    if (!notes.trim() || !selectedPatient) return;
     setLoading(true);
     setResult(null);
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/analyze/notes", {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        setResult(buildDemoAnalysis(notes, selectedPatient.profile.fullName));
+        return;
+      }
+
+      const data = await fetchFastApiJson<ApiNotesAnalyzeResponse>("/api/notes/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes })
+        accessToken,
+        body: JSON.stringify({
+          notes,
+          patient_id: selectedPatient.patientId,
+          patient_name: selectedPatient.profile.fullName
+        })
       });
 
-      const data = await response.json();
-      const raw = data.analysis as string;
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      const parsed: AnalysisResult = JSON.parse(cleaned);
-      setResult(parsed);
-    } catch {
-      setError("Failed to analyze notes. Make sure the backend is running.");
+      setResult(data);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to analyze notes. Make sure the backend is running."
+      );
     } finally {
       setLoading(false);
     }
@@ -65,6 +106,17 @@ export function NotesAnalyzer() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-2xl border border-border/70 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
+          {selectedPatient ? (
+            <>
+              Analyzing notes for{" "}
+              <span className="font-semibold text-slate-900">{selectedPatient.profile.fullName}</span>
+            </>
+          ) : (
+            "Select a patient first to give the analysis clinical context."
+          )}
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="notes">Clinical Notes</Label>
           <Textarea
@@ -73,6 +125,7 @@ export function NotesAnalyzer() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="min-h-[100px]"
+            disabled={!selectedPatient}
           />
         </div>
 
@@ -80,7 +133,7 @@ export function NotesAnalyzer() {
           type="button"
           className="w-full bg-teal-700 hover:bg-teal-800"
           onClick={handleAnalyze}
-          disabled={loading || !notes.trim()}
+          disabled={loading || !notes.trim() || !selectedPatient}
         >
           {loading ? (
             <>

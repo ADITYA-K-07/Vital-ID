@@ -6,3 +6,10 @@ dist
 backend/.env
 __pycache__/
 *.pyc
+.env
+llm.py
+__pycache__/
+*.log
+.env
+__pycache__/
+*.log
