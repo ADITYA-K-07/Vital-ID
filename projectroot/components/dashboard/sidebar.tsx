@@ -13,6 +13,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { QrCode } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,8 +51,17 @@ export function DashboardSidebar({ demoMode, profile, viewerRole, licenseNumber,
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showQR, setShowQR] = useState(false);
 
   const navigation = viewerRole === "doctor" ? doctorNav : patientNav;
+
+  const qrData = JSON.stringify({
+    name: profile.fullName,
+    bloodType: profile.bloodType,
+    dob: profile.dob,
+    emergencyContact: profile.emergencyContact,
+    vitalId: profile.id
+  });
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
   useEffect(() => {
@@ -104,16 +115,34 @@ export function DashboardSidebar({ demoMode, profile, viewerRole, licenseNumber,
         </div>
 
         {viewerRole === "patient" && (
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <div className="rounded-lg bg-white/5 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Blood Type</p>
-              <p className="mt-0.5 text-sm font-semibold text-white">{profile.bloodType}</p>
+          <>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="rounded-lg bg-white/5 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Blood Type</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{profile.bloodType}</p>
+              </div>
+              <div className="rounded-lg bg-white/5 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">DOB</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{profile.dob}</p>
+              </div>
             </div>
-            <div className="rounded-lg bg-white/5 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">DOB</p>
-              <p className="mt-0.5 text-sm font-semibold text-white">{profile.dob}</p>
+
+            {/* Mini QR for sidebar */}
+            <div className="border-t border-white/10 pt-3 flex flex-col items-center gap-2">
+              <button
+                onClick={() => setShowQR(!showQR)}
+                className="flex items-center gap-1.5 text-[11px] text-teal-400 hover:text-teal-300 transition-colors"
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                {showQR ? "Hide QR Code" : "My QR Code"}
+              </button>
+              {showQR && (
+                <div className="rounded-xl bg-white p-2 shadow-lg">
+                  <QRCodeSVG value={qrData} size={140} level="H" />
+                </div>
+              )}
             </div>
-          </div>
+          </>
         )}
 
         {viewerRole === "doctor" && (

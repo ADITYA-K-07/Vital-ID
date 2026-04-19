@@ -6,59 +6,82 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { MedicalRecord, ProfileSummary } from "@/types";
-
-interface RiskFlag {
-  flag: string;
-  color: "yellow" | "red";
-}
-
-interface PatternResult {
-  patterns: string[];
-  risk_flags: RiskFlag[];
-  recommendations: string[];
-  summary: string;
-}
+import {
+  type ApiPatternDetectResponse,
+  type PatientLookupData,
+  fetchFastApiJson,
+  getBrowserAccessToken
+} from "@/lib/fastapi";
+import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 
 interface PatternDetectorProps {
-  records: MedicalRecord[];
-  profile: ProfileSummary;
+  selectedPatient: PatientLookupData | null;
 }
 
-export function PatternDetector({ records, profile }: PatternDetectorProps) {
+function buildDemoPatternResult(patientName: string, recordCount: number): ApiPatternDetectResponse {
+  return {
+    patterns: [
+      "Repeated monitoring snapshots show a stable chronic-condition history.",
+      "Medication mentions appear across the recent timeline."
+    ],
+    risk_flags: [
+      { flag: "Needs clinician review if symptoms recur", color: "yellow" }
+    ],
+    recommendations: [
+      "Compare the latest record against the prior visit trend.",
+      "Confirm adherence to current medications and follow-up schedule."
+    ],
+    summary: `${patientName} has ${recordCount} recent record(s) available for longitudinal review.`
+  };
+}
+
+export function PatternDetector({ selectedPatient }: PatternDetectorProps) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<PatternResult | null>(null);
+  const [result, setResult] = useState<ApiPatternDetectResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleDetect = async () => {
+    if (!selectedPatient) return;
+
     setLoading(true);
     setResult(null);
     setError(null);
 
-    // Format records for the API
-    const formattedRecords = records.map((r) => ({
-      date: r.recordedAt,
-      condition: r.conditions.join(", ") || "General checkup",
-      notes: `BP: ${r.bloodPressure}, HR: ${r.heartRate}bpm, O2: ${r.oxygenSaturation}%, Meds: ${r.medications.join(", ")}`
+    const formattedRecords = selectedPatient.medicalRecords.map((record) => ({
+      date: record.recordedAt,
+      condition: record.conditions.join(", ") || "General checkup",
+      notes: `BP: ${record.bloodPressure}, HR: ${record.heartRate}bpm, O2: ${record.oxygenSaturation}%, Meds: ${record.medications.join(", ")}`
     }));
 
     try {
-      const response = await fetch("http://localhost:8000/api/patterns/detect", {
+      const accessToken = getBrowserAccessToken();
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        setResult(
+          buildDemoPatternResult(
+            selectedPatient.profile.fullName,
+            selectedPatient.medicalRecords.length
+          )
+        );
+        return;
+      }
+
+      const data = await fetchFastApiJson<ApiPatternDetectResponse>("/api/patterns/detect", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        accessToken,
         body: JSON.stringify({
-          patient_name: profile.fullName,
+          patient_id: selectedPatient.patientId,
+          patient_name: selectedPatient.profile.fullName,
           records: formattedRecords
         })
       });
 
-      const data = await response.json();
-      const raw = data.patterns as string;
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      const parsed: PatternResult = JSON.parse(cleaned);
-      setResult(parsed);
-    } catch {
-      setError("Failed to detect patterns. Make sure the backend is running.");
+      setResult(data);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to detect patterns. Make sure the backend is running."
+      );
     } finally {
       setLoading(false);
     }
@@ -76,16 +99,28 @@ export function PatternDetector({ records, profile }: PatternDetectorProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Records preview */}
         <div className="rounded-2xl border border-border/70 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
-          Analyzing <span className="font-semibold text-slate-900">{records.length} health records</span> for <span className="font-semibold text-slate-900">{profile.fullName}</span>
+          {selectedPatient ? (
+            <>
+              Analyzing{" "}
+              <span className="font-semibold text-slate-900">
+                {selectedPatient.medicalRecords.length} health record(s)
+              </span>{" "}
+              for{" "}
+              <span className="font-semibold text-slate-900">
+                {selectedPatient.profile.fullName}
+              </span>
+            </>
+          ) : (
+            "Select a patient to unlock pattern detection."
+          )}
         </div>
 
         <Button
           type="button"
           className="w-full bg-teal-700 hover:bg-teal-800"
           onClick={handleDetect}
-          disabled={loading}
+          disabled={loading || !selectedPatient}
         >
           {loading ? (
             <>
@@ -113,12 +148,10 @@ export function PatternDetector({ records, profile }: PatternDetectorProps) {
               <p className="font-semibold text-teal-900">AI Pattern Analysis</p>
             </div>
 
-            {/* Summary */}
             <div className="rounded-2xl bg-white border border-teal-100 px-4 py-3 text-sm text-slate-700 italic">
               {result.summary}
             </div>
 
-            {/* Patterns */}
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">
                 Detected Patterns
@@ -133,7 +166,6 @@ export function PatternDetector({ records, profile }: PatternDetectorProps) {
               </ul>
             </div>
 
-            {/* Risk Flags */}
             {result.risk_flags.length > 0 && (
               <div>
                 <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">
@@ -150,14 +182,13 @@ export function PatternDetector({ records, profile }: PatternDetectorProps) {
                           : "bg-yellow-100 text-yellow-800 border-yellow-200"
                       }
                     >
-                      {flag.color === "red" ? "🔴" : "🟡"} {flag.flag}
+                      {flag.flag}
                     </Badge>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Recommendations */}
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">
                 Recommendations

@@ -7,9 +7,12 @@ import {
   Pill,
   User,
   LogOut,
-  Info
+  Info,
+  Download
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useRef } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -32,6 +35,33 @@ export function PatientDashboard({ data }: PatientDashboardProps) {
   const router = useRouter();
   const { profile, consultations, medicalRecords, alerts, fieldPermissions } = data;
   const latestRecord = medicalRecords[0];
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const vitalIdNumber = `VID-${profile.id.slice(-6).toUpperCase()}`;
+
+  const qrData = JSON.stringify({
+    vitalId: vitalIdNumber,
+    name: profile.fullName,
+    bloodType: profile.bloodType,
+    dob: profile.dob,
+    emergencyContact: profile.emergencyContact,
+    allergies: latestRecord?.allergies ?? [],
+    medications: latestRecord?.medications ?? [],
+    conditions: latestRecord?.conditions ?? [],
+  });
+
+  const handleDownloadQR = () => {
+    const svg = qrRef.current?.querySelector("svg");
+    if (!svg) return;
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([svgData], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `VitalID-${profile.fullName.replace(" ", "-")}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleLogout = async () => {
     const supabase = createBrowserSupabaseClient();
@@ -93,7 +123,7 @@ export function PatientDashboard({ data }: PatientDashboardProps) {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Basic patient details */}
+        {/* Patient details + QR */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -122,12 +152,44 @@ export function PatientDashboard({ data }: PatientDashboardProps) {
                 <p className="mt-1 text-sm font-semibold text-slate-900">{profile.insuranceProvider}</p>
               </div>
             </div>
+
             {fieldPermissions.showEmergencyContact && (
               <div className="rounded-xl bg-rose-50 border border-rose-100 px-4 py-3">
                 <p className="text-[10px] uppercase tracking-wide text-rose-500">Emergency Contact</p>
                 <p className="mt-1 text-sm font-semibold text-slate-900">{profile.emergencyContact}</p>
               </div>
             )}
+
+            {/* Always visible QR Code */}
+            <div className="rounded-xl border border-teal-100 bg-teal-50/50 px-4 py-4">
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                <div ref={qrRef} className="rounded-xl bg-white p-3 shadow-md shrink-0">
+                  <QRCodeSVG value={qrData} size={140} level="H" />
+                </div>
+                <div className="flex flex-col gap-2 text-center sm:text-left">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-teal-600">Your VitalID Number</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 tracking-widest font-mono">{vitalIdNumber}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-5">
+                    Show this QR code to any doctor for instant emergency access to your medical profile.
+                  </p>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    🔒 Full history requires doctor licence + your password
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-teal-200 text-teal-700 hover:bg-teal-50 w-fit"
+                    onClick={handleDownloadQR}
+                  >
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    Download QR
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             {latestRecord && fieldPermissions.showVitals && (
               <div className="grid grid-cols-3 gap-2 pt-1">
                 {[

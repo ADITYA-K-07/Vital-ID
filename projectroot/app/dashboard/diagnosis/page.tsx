@@ -15,7 +15,7 @@ export default async function DiagnosisPage() {
           Post difficult cases for the global doctor community to review. Browse open cases and share your expertise with fellow clinicians worldwide.
         </p>
       </div>
-      <CollaborativeForum initialCases={data.diagnoses} />
+      <CollaborativeForum />
     </>
   );
 }

@@ -10,7 +10,11 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
-  AlertTriangle
+  AlertTriangle,
+  QrCode,
+  KeyRound,
+  ScanLine,
+  Zap
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -22,27 +26,41 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  type ApiPatientFullProfileResponse,
+  type PatientLookupData,
+  fetchFastApiJson,
+  getBrowserAccessToken,
+  mapApiPatientFullProfileToLookup
+} from "@/lib/fastapi";
+import { mockDashboardData } from "@/lib/mock-data";
+import {
   AUTH_COOKIE_NAME,
   AUTH_LICENSE_COOKIE_NAME,
   AUTH_LICENSE_VERIFIED_COOKIE_NAME,
   AUTH_ROLE_COOKIE_NAME,
+  DEMO_SESSION_TOKEN,
   createBrowserSupabaseClient
 } from "@/lib/supabase/client";
 import { mockDashboardData } from "@/lib/mock-data";
 import type { DashboardData } from "@/types";
 
+type AccessMethod = "manual" | "qr";
+
 export function DoctorDashboard() {
   const router = useRouter();
+  const [accessMethod, setAccessMethod] = useState<AccessMethod>("manual");
   const [vitalId, setVitalId] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [patientData, setPatientData] = useState<DashboardData | null>(null);
+  const [patientData, setPatientData] = useState<PatientLookupData | null>(null);
   const [showAddDiagnosis, setShowAddDiagnosis] = useState(false);
   const [showAddTreatment, setShowAddTreatment] = useState(false);
   const [diagnosisNote, setDiagnosisNote] = useState("");
   const [treatmentNote, setTreatmentNote] = useState("");
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [qrScanning, setQrScanning] = useState(false);
+  const [scannedId, setScannedId] = useState("");
 
   const handleLogout = async () => {
     const supabase = createBrowserSupabaseClient();
@@ -55,16 +73,15 @@ export function DoctorDashboard() {
     router.refresh();
   };
 
-  const handleLookup = async (e: React.FormEvent) => {
+  // Manual flow — password required
+  const handleManualLookup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setPatientData(null);
     setLoading(true);
     try {
-      // Demo: accept any input and return mock data
       await new Promise((r) => setTimeout(r, 800));
       if (!vitalId.trim() || !password.trim()) throw new Error("Please enter both Vital ID and password.");
-      // In production: query Supabase with vitalId + password
       setPatientData({ ...mockDashboardData, viewer: { role: "doctor", canViewSensitive: true, licenseNumber: null, licenseVerified: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed.");
@@ -73,11 +90,26 @@ export function DoctorDashboard() {
     }
   };
 
+  // QR flow — no password, immediate emergency access
+  const handleSimulateScan = async () => {
+    setQrScanning(true);
+    setError(null);
+    setPatientData(null);
+    await new Promise((r) => setTimeout(r, 1500));
+    setScannedId("VID-01DEMO");
+    setQrScanning(false);
+    // Immediately load patient — no password required
+    setLoading(true);
+    await new Promise((r) => setTimeout(r, 600));
+    setPatientData({ ...mockDashboardData, viewer: { role: "doctor", canViewSensitive: true, licenseNumber: null, licenseVerified: true } });
+    setLoading(false);
+  };
+
   const handleSaveDiagnosis = async () => {
     if (!diagnosisNote.trim()) return;
     setSaveStatus("Saving...");
     await new Promise((r) => setTimeout(r, 600));
-    setSaveStatus("Diagnosis added successfully.");
+    setSaveStatus("Diagnosis added locally. Route wiring can be layered on next.");
     setDiagnosisNote("");
     setShowAddDiagnosis(false);
     setTimeout(() => setSaveStatus(null), 3000);
@@ -87,7 +119,7 @@ export function DoctorDashboard() {
     if (!treatmentNote.trim()) return;
     setSaveStatus("Saving...");
     await new Promise((r) => setTimeout(r, 600));
-    setSaveStatus("Treatment record added successfully.");
+    setSaveStatus("Treatment record added locally. Route wiring can be layered on next.");
     setTreatmentNote("");
     setShowAddTreatment(false);
     setTimeout(() => setSaveStatus(null), 3000);
@@ -98,13 +130,12 @@ export function DoctorDashboard() {
 
   return (
     <>
-      {/* Header */}
       <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/60 bg-white/70 p-6 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-teal-700">Doctor Dashboard</p>
           <h1 className="mt-1 font-serif text-3xl text-slate-900 lg:text-4xl">Patient Lookup</h1>
           <p className="mt-2 text-sm leading-7 text-slate-500">
-            Enter a patient's Vital ID and access password to view their full medical record.
+            Scan a patient's QR code or enter their VitalID number to access their medical record.
           </p>
         </div>
         <Button variant="outline" onClick={handleLogout} className="w-fit gap-2">
@@ -112,45 +143,133 @@ export function DoctorDashboard() {
         </Button>
       </div>
 
-      {/* Lookup form */}
+      {/* Access Method Toggle */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <div className="rounded-xl bg-teal-50 p-2 text-teal-700"><Search className="h-4 w-4" /></div>
-            <CardTitle className="text-base">Search Patient Record</CardTitle>
+            <CardTitle className="text-base">Access Patient Record</CardTitle>
           </div>
-          <CardDescription>Enter the patient's Vital ID number and their access password</CardDescription>
+          <CardDescription>Choose how to identify the patient</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLookup} className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-1.5">
-              <Label htmlFor="vitalid">Vital ID Number</Label>
-              <Input id="vitalid" placeholder="e.g. VID-20458" value={vitalId} onChange={(e) => setVitalId(e.target.value)} required />
+        <CardContent className="space-y-5">
+
+          {/* Toggle buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => { setAccessMethod("manual"); setScannedId(""); setPatientData(null); setError(null); }}
+              className={`flex items-center justify-center gap-2 rounded-2xl border-2 px-4 py-4 text-sm font-medium transition-all ${
+                accessMethod === "manual"
+                  ? "border-teal-600 bg-teal-50 text-teal-800"
+                  : "border-border bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <KeyRound className="h-4 w-4" />
+              Enter VitalID Manually
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAccessMethod("qr"); setVitalId(""); setPassword(""); setPatientData(null); setError(null); }}
+              className={`flex items-center justify-center gap-2 rounded-2xl border-2 px-4 py-4 text-sm font-medium transition-all ${
+                accessMethod === "qr"
+                  ? "border-teal-600 bg-teal-50 text-teal-800"
+                  : "border-border bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <QrCode className="h-4 w-4" />
+              Scan QR Code
+            </button>
+          </div>
+
+          {/* Manual Entry — password required */}
+          {accessMethod === "manual" && (
+            <form onSubmit={handleManualLookup} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="vitalid">VitalID Number</Label>
+                  <Input
+                    id="vitalid"
+                    placeholder="e.g. VID-20458"
+                    value={vitalId}
+                    onChange={(e) => setVitalId(e.target.value)}
+                    required
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="patpass">Patient Password</Label>
+                  <Input
+                    id="patpass"
+                    type="password"
+                    placeholder="Patient access password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              <Button type="submit" className="gap-2 bg-teal-700 hover:bg-teal-800" disabled={loading}>
+                <Search className="h-4 w-4" />
+                {loading ? "Searching..." : "Look up Patient"}
+              </Button>
+            </form>
+          )}
+
+          {/* QR Scan — NO password, emergency access */}
+          {accessMethod === "qr" && (
+            <div className="space-y-4">
+              {/* Emergency notice */}
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <Zap className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Emergency Access:</strong> QR scan grants immediate access without a password. Use responsibly.
+                </span>
+              </div>
+
+              {/* QR Scan area */}
+              <div className="rounded-2xl border-2 border-dashed border-teal-200 bg-teal-50/50 p-6 flex flex-col items-center gap-4">
+                <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+                  <ScanLine className="h-16 w-16 text-teal-300" />
+                </div>
+                {scannedId ? (
+                  <div className="text-center space-y-1">
+                    <p className="text-xs text-slate-500">QR Code Scanned Successfully ✅</p>
+                    <p className="font-mono text-lg font-bold text-teal-800">{scannedId}</p>
+                    {loading && <p className="text-xs text-teal-600 animate-pulse">Loading patient record...</p>}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 text-center">
+                    Point your camera at the patient's QR code
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-teal-200 text-teal-700 hover:bg-teal-50 gap-2"
+                  onClick={handleSimulateScan}
+                  disabled={qrScanning || loading}
+                >
+                  <QrCode className="h-4 w-4" />
+                  {qrScanning ? "Scanning..." : scannedId ? "Scan Again" : "Simulate QR Scan"}
+                </Button>
+              </div>
             </div>
-            <div className="flex-1 space-y-1.5">
-              <Label htmlFor="patpass">Patient Password</Label>
-              <Input id="patpass" type="password" placeholder="Patient access password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            <Button type="submit" className="shrink-0 gap-2" disabled={loading}>
-              <Search className="h-4 w-4" />
-              {loading ? "Searching..." : "Look up Patient"}
-            </Button>
-          </form>
+          )}
+
           {error && (
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
           {saveStatus && (
-            <div className="mt-4 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">{saveStatus}</div>
+            <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">{saveStatus}</div>
           )}
         </CardContent>
       </Card>
 
-      {/* Patient info — shown after lookup */}
       {p && latest && (
         <>
-          {/* Patient overview */}
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-3">
@@ -164,12 +283,12 @@ export function DoctorDashboard() {
                   {[
                     { label: "Full Name", value: p.profile.fullName },
                     { label: "Blood Type", value: p.profile.bloodType },
-                    { label: "Date of Birth", value: p.profile.dob },
+                    { label: "Date of Birth", value: p.profile.dob || "Not provided" },
                     { label: "Insurance", value: p.profile.insuranceProvider }
-                  ].map((f) => (
-                    <div key={f.label} className="rounded-xl bg-slate-50 px-4 py-3">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{f.label}</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">{f.value}</p>
+                  ].map((field) => (
+                    <div key={field.label} className="rounded-xl bg-slate-50 px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{field.label}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{field.value}</p>
                     </div>
                   ))}
                 </div>
@@ -193,28 +312,27 @@ export function DoctorDashboard() {
                   {[
                     { label: "Blood Pressure", value: latest.bloodPressure },
                     { label: "Heart Rate", value: `${latest.heartRate} bpm` },
-                    { label: "O₂ Saturation", value: `${latest.oxygenSaturation}%` },
+                    { label: "O2 Saturation", value: `${latest.oxygenSaturation}%` },
                     { label: "Temperature", value: latest.temperature },
                     { label: "Height", value: `${latest.heightCm} cm` },
                     { label: "Weight", value: `${latest.weightKg} kg` }
-                  ].map((v) => (
-                    <div key={v.label} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{v.label}</p>
-                      <p className="mt-0.5 text-sm font-bold text-slate-900">{v.value}</p>
+                  ].map((vital) => (
+                    <div key={vital.label} className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{vital.label}</p>
+                      <p className="mt-0.5 text-sm font-bold text-slate-900">{vital.value}</p>
                     </div>
                   ))}
                 </div>
                 <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-[10px] uppercase tracking-wide text-amber-600 mb-2">Allergies</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {latest.allergies.map((a) => <Badge key={a} variant="warning">{a}</Badge>)}
+                    {p.allergies.map((allergy) => <Badge key={allergy} variant="warning">{allergy}</Badge>)}
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Medications & Conditions */}
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-3">
@@ -224,11 +342,11 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {latest.medications.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                {latest.medications.map((medication, index) => (
+                  <div key={`${medication}-${index}`} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="h-2 w-2 rounded-full bg-teal-500" />
-                      <p className="text-sm font-medium text-slate-900">{m}</p>
+                      <p className="text-sm font-medium text-slate-900">{medication}</p>
                     </div>
                     <Badge variant="secondary">Active</Badge>
                   </div>
@@ -244,17 +362,16 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {latest.conditions.map((c, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                {p.conditions.map((condition, index) => (
+                  <div key={`${condition}-${index}`} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
                     <div className="h-2 w-2 rounded-full bg-rose-400" />
-                    <p className="text-sm font-medium text-slate-900">{c}</p>
+                    <p className="text-sm font-medium text-slate-900">{condition}</p>
                   </div>
                 ))}
               </CardContent>
             </Card>
           </div>
 
-          {/* Add Diagnosis */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -280,7 +397,6 @@ export function DoctorDashboard() {
             )}
           </Card>
 
-          {/* Add Treatment */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">

@@ -1,7 +1,6 @@
 import { getDashboardData } from "@/lib/dashboard-data";
 import { redirect } from "next/navigation";
-import { NotesAnalyzer } from "@/components/dashboard/notes-analyzer";
-import { PatternDetector } from "@/components/dashboard/pattern-detector";
+import { DoctorAiTools } from "@/components/dashboard/doctor-ai-tools";
 
 export default async function AIToolsPage() {
   const data = await getDashboardData();
@@ -17,10 +16,7 @@ export default async function AIToolsPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <NotesAnalyzer />
-        <PatternDetector records={data.medicalRecords} profile={data.profile} />
-      </div>
+      <DoctorAiTools />
     </>
   );
 }
