@@ -19,6 +19,7 @@ class FieldPermissions(BaseModel):
 class PatientProfileItem(BaseModel):
     id: str
     user_id: str | None = None
+    vital_id: str | None = None
     full_name: str
     role: str = "Patient"
     age: int | None = None
@@ -71,6 +72,7 @@ class TreatmentHistoryItem(BaseModel):
     treatment: str | None = None
     notes: str | None = None
     follow_up_date: str | None = None
+    added_by: str | None = None
     created_at: str | None = None
 
 
@@ -82,6 +84,7 @@ class MedicalHistoryItem(BaseModel):
     facility: str | None = None
     doctor_name: str | None = None
     event_date: str | None = None
+    added_by: str | None = None
     created_at: str | None = None
 
 
@@ -133,3 +136,29 @@ class PatientIdentityUpdateRequest(BaseModel):
     diagnosis: str | None = None
     prescription: str | None = None
     notes: str | None = None
+
+
+class DoctorDiagnosisCreateRequest(BaseModel):
+    diagnosis: str
+
+
+class DoctorTreatmentCreateRequest(BaseModel):
+    treatment: str
+
+
+class PatientTreatmentHistoryCreateRequest(BaseModel):
+    diagnosis: str
+    specialty: str | None = None
+    treatment: str | None = None
+    notes: str | None = None
+    follow_up_date: str | None = None
+    doctor_name: str | None = None
+
+
+class PatientMedicalHistoryCreateRequest(BaseModel):
+    event_type: str = "Diagnosis"
+    title: str
+    description: str | None = None
+    facility: str | None = None
+    doctor_name: str | None = None
+    event_date: str

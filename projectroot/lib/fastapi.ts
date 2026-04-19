@@ -3,6 +3,8 @@ import type {
   Consultation,
   DashboardData,
   FieldPermissions,
+  ForumCase,
+  ForumComment,
   MedicalHistoryEntry,
   MedicalRecord,
   ProfileSummary,
@@ -14,9 +16,59 @@ export interface ApiMeResponse {
   user_id: string;
   profile_id: string;
   patient_id?: string | null;
+  vital_id?: string | null;
   name: string;
   email: string;
   role: "doctor" | "patient";
+  license_number?: string | null;
+  license_verified?: boolean;
+}
+
+export interface ApiDoctorLicenseCheckResponse {
+  license_number: string;
+  license_verified: boolean;
+  message: string;
+}
+
+export interface ApiSessionBootstrapRequest {
+  role: "doctor" | "patient";
+  full_name?: string | null;
+  blood_group?: string | null;
+  dob?: string | null;
+  emergency_contact?: string | null;
+  insurance_provider?: string | null;
+  allergies?: string[];
+  conditions?: string[];
+  vaccinations?: string[];
+  license_number?: string | null;
+}
+
+export interface ApiSessionBootstrapResponse extends ApiMeResponse {}
+
+export interface ApiDoctorDiagnosisCreateRequest {
+  diagnosis: string;
+}
+
+export interface ApiDoctorTreatmentCreateRequest {
+  treatment: string;
+}
+
+export interface ApiPatientTreatmentHistoryCreateRequest {
+  diagnosis: string;
+  specialty?: string | null;
+  treatment?: string | null;
+  notes?: string | null;
+  follow_up_date?: string | null;
+  doctor_name?: string | null;
+}
+
+export interface ApiPatientMedicalHistoryCreateRequest {
+  event_type: string;
+  title: string;
+  description?: string | null;
+  facility?: string | null;
+  doctor_name?: string | null;
+  event_date: string;
 }
 
 export interface ApiAlertItem {
@@ -45,6 +97,7 @@ export interface ApiFieldPermissions {
 export interface ApiPatientProfileItem {
   id: string;
   user_id?: string | null;
+  vital_id?: string | null;
   full_name: string;
   role: string;
   age?: number | null;
@@ -97,6 +150,7 @@ export interface ApiTreatmentHistoryItem {
   treatment?: string | null;
   notes?: string | null;
   follow_up_date?: string | null;
+  added_by?: "patient" | "doctor" | null;
   created_at?: string | null;
 }
 
@@ -108,6 +162,7 @@ export interface ApiMedicalHistoryItem {
   facility?: string | null;
   doctor_name?: string | null;
   event_date?: string | null;
+  added_by?: "patient" | "doctor" | null;
   created_at?: string | null;
 }
 
@@ -149,6 +204,10 @@ export interface ApiForumCaseItem {
   created_at?: string | null;
 }
 
+export interface ApiForumCasesResponse {
+  cases: ApiForumCaseItem[];
+}
+
 export interface ApiForumCommentItem {
   id: string;
   case_id: string;
@@ -156,6 +215,31 @@ export interface ApiForumCommentItem {
   author_name: string;
   comment: string;
   created_at?: string | null;
+}
+
+export interface ApiForumCommentsResponse {
+  comments: ApiForumCommentItem[];
+}
+
+export interface ApiForumMatchedDoctor {
+  name: string;
+  specialty: string;
+  hospital: string;
+  country: string;
+  reason: string;
+}
+
+export interface ApiForumSimilarCase {
+  case_id: string;
+  title: string;
+  specialty: string;
+  description: string;
+  resolution: string;
+}
+
+export interface ApiForumCaseMatchResponse {
+  matched_doctors: ApiForumMatchedDoctor[];
+  similar_cases: ApiForumSimilarCase[];
 }
 
 export interface ApiNotesAnalyzeResponse {
@@ -182,12 +266,15 @@ export interface ApiSimilarCasesResponse {
 
 export interface PatientLookupData {
   patientId: string;
+  vitalId: string | null;
   profile: ProfileSummary;
   age: number | null;
   allergies: string[];
   conditions: string[];
   vaccinations: string[];
   medicalRecords: MedicalRecord[];
+  treatmentHistory: TreatmentRecord[];
+  medicalHistory: MedicalHistoryEntry[];
 }
 
 function normalizeList(value: unknown): string[] {
@@ -207,6 +294,7 @@ function normalizeList(value: unknown): string[] {
 function mapProfileSummary(profile: ApiPatientProfileItem): ProfileSummary {
   return {
     id: profile.id,
+    vitalId: profile.vital_id ?? null,
     fullName: profile.full_name,
     role: profile.role,
     bloodType: profile.blood_group ?? "Unknown",
@@ -280,7 +368,8 @@ function mapTreatmentRecord(item: ApiTreatmentHistoryItem): TreatmentRecord {
     diagnosis: item.diagnosis ?? "Not specified",
     treatment: item.treatment ?? "Not specified",
     notes: item.notes ?? "",
-    followUp: item.follow_up_date ?? undefined
+    followUp: item.follow_up_date ?? undefined,
+    addedBy: item.added_by ?? null
   };
 }
 
@@ -295,7 +384,8 @@ function mapMedicalHistoryEntry(item: ApiMedicalHistoryItem): MedicalHistoryEntr
     title: item.title,
     description: item.description ?? "",
     facility: item.facility ?? "Not specified",
-    doctorName: item.doctor_name ?? "Care Team"
+    doctorName: item.doctor_name ?? "Care Team",
+    addedBy: item.added_by ?? null
   };
 }
 
@@ -340,6 +430,7 @@ export function mapApiPatientFullProfileToLookup(
 ): PatientLookupData {
   return {
     patientId: response.patient.id,
+    vitalId: response.patient.vital_id ?? null,
     profile: mapProfileSummary(response.patient),
     age: response.patient.age ?? null,
     allergies: normalizeList(response.patient.allergies),
@@ -347,7 +438,37 @@ export function mapApiPatientFullProfileToLookup(
     vaccinations: normalizeList(response.patient.vaccinations),
     medicalRecords: response.medical_records.map((record) =>
       mapApiMedicalRecord(record, response.patient)
-    )
+    ),
+    treatmentHistory: response.treatment_history.map(mapTreatmentRecord),
+    medicalHistory: response.medical_history.map(mapMedicalHistoryEntry)
+  };
+}
+
+export function mapApiForumCase(item: ApiForumCaseItem): ForumCase {
+  return {
+    id: item.id,
+    doctorId: item.doctor_id,
+    authorName: item.author_name,
+    title: item.title,
+    symptoms: item.symptoms ?? undefined,
+    description: item.description,
+    specialty: item.specialty ?? "General Medicine",
+    status:
+      item.status === "Needs Review" || item.status === "Resolved"
+        ? item.status
+        : "Shared",
+    createdAt: item.created_at ?? new Date().toISOString()
+  };
+}
+
+export function mapApiForumComment(item: ApiForumCommentItem): ForumComment {
+  return {
+    id: item.id,
+    caseId: item.case_id,
+    doctorId: item.doctor_id,
+    authorName: item.author_name,
+    comment: item.comment,
+    createdAt: item.created_at ?? new Date().toISOString()
   };
 }
 
@@ -370,6 +491,70 @@ export function getBrowserAccessToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function extractApiErrorMessage(payload: unknown): string | null {
+  if (typeof payload === "string" && payload.trim()) {
+    return payload.trim();
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const detail = record.detail;
+
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim();
+  }
+
+  if (Array.isArray(detail)) {
+    const joined = detail
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item && typeof item === "object") {
+          const itemRecord = item as Record<string, unknown>;
+          const message = itemRecord.msg ?? itemRecord.message;
+          return typeof message === "string" ? message.trim() : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(", ");
+
+    if (joined) {
+      return joined;
+    }
+  }
+
+  for (const key of ["message", "error_description", "error"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+async function readFastApiErrorMessage(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      const payload = await response.json();
+      const message = extractApiErrorMessage(payload);
+      if (message) {
+        return message;
+      }
+    } catch {
+      // Fall through to the plain-text body when JSON parsing fails.
+    }
+  }
+
+  const text = await response.text();
+  return text || `FastAPI request failed with status ${response.status}`;
+}
+
 export async function fetchFastApiJson<T>(
   path: string,
   options: RequestInit & { accessToken?: string | null } = {}
@@ -386,8 +571,8 @@ export async function fetchFastApiJson<T>(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `FastAPI request failed with status ${response.status}`);
+    const message = await readFastApiErrorMessage(response);
+    throw new Error(`FastAPI ${response.status}: ${message}`);
   }
 
   return response.json() as Promise<T>;

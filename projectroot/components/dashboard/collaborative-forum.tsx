@@ -1,171 +1,282 @@
 "use client";
 
 import {
-  Globe,
-  Plus,
-  Upload,
-  MessageSquare,
-  Clock,
-  ChevronUp,
-  Stethoscope,
-  X,
-  UserCheck,
-  FileSearch,
-  Loader2,
   CheckCircle2,
-  Mail
+  ChevronUp,
+  Clock,
+  FileSearch,
+  Globe,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Plus,
+  Stethoscope,
+  Upload,
+  UserCheck
 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type ApiForumCaseItem,
+  type ApiForumCaseMatchResponse,
+  type ApiForumCommentItem,
+  type ApiForumCommentsResponse,
+  fetchFastApiJson,
+  getBrowserAccessToken,
+  mapApiForumCase,
+  mapApiForumComment
+} from "@/lib/fastapi";
+import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 import { formatDateTime } from "@/lib/utils";
-import type { DiagnosisEntry } from "@/types";
+import type { ForumCase, ForumComment } from "@/types";
 
-// Mock global cases from other doctors
-const globalCases: DiagnosisEntry[] = [
-  {
-    id: "g-01",
-    caseId: "CASE-3891",
-    authorName: "Dr. Rahul Verma",
-    specialty: "Neurology",
-    note: "Patient 38F presenting with recurring focal seizures unresponsive to standard AEDs. MRI shows subtle cortical dysplasia. Seeking input on surgical candidacy criteria and pre-surgical workup recommendations.",
-    status: "Needs Review",
-    createdAt: "2026-04-18T09:00:00.000Z",
-    confidenceScore: 0
-  },
-  {
-    id: "g-02",
-    caseId: "CASE-3754",
-    authorName: "Dr. Amelia Fernandez",
-    specialty: "Rheumatology",
-    note: "Male 52, ANA positive, joint inflammation, skin rash, elevated CRP. DMARD therapy started but minimal response after 3 months. Overlap syndrome suspected. Seeking differential diagnosis support.",
-    status: "Shared",
-    createdAt: "2026-04-17T14:30:00.000Z",
-    confidenceScore: 0
-  },
-  {
-    id: "g-03",
-    caseId: "CASE-3612",
-    authorName: "Dr. James Okafor",
-    specialty: "Hepatology",
-    note: "Child 9M with unexplained hepatomegaly and elevated liver enzymes. Wilson's disease and metabolic disorders ruled out. Liver biopsy pending. Any experience with similar pediatric presentations?",
-    status: "Needs Review",
-    createdAt: "2026-04-16T11:00:00.000Z",
-    confidenceScore: 0
-  }
-];
-
-interface MatchedDoctor {
-  name: string;
-  specialty: string;
-  hospital: string;
-  country: string;
-  reason: string;
-}
-
-interface SimilarCase {
-  case_id: string;
-  title: string;
-  specialty: string;
-  description: string;
-  resolution: string;
-}
-
-interface MatchResult {
-  matched_doctors: MatchedDoctor[];
-  similar_cases: SimilarCase[];
+interface CollaborativeForumProps {
+  initialCases: ForumCase[];
+  viewerProfileId: string;
 }
 
 interface ReplyState {
   [caseId: string]: string;
 }
 
-interface CollaborativeForumProps {
-  initialCases: DiagnosisEntry[];
+function buildCaseDisplayId(caseId: string) {
+  return `CASE-${caseId.slice(0, 8).toUpperCase()}`;
 }
 
-export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
+function buildDemoMatchResult(
+  title: string,
+  specialty: string,
+  description: string
+): ApiForumCaseMatchResponse {
+  return {
+    matched_doctors: [
+      {
+        name: "Dr. Asha Menon",
+        specialty: specialty || "General Medicine",
+        hospital: "Apollo Clinical Centre",
+        country: "India",
+        reason: `Relevant for ${title} based on the posted case summary.`
+      },
+      {
+        name: "Dr. Daniel Brooks",
+        specialty: specialty || "Internal Medicine",
+        hospital: "St. Mary's Teaching Hospital",
+        country: "United Kingdom",
+        reason: "Experienced with unresolved multidisciplinary case reviews."
+      },
+      {
+        name: "Dr. Sofia Alvarez",
+        specialty: specialty || "Diagnostic Medicine",
+        hospital: "University Hospital Madrid",
+        country: "Spain",
+        reason: description
+          ? "Strong fit for unusual or prolonged diagnostic workups."
+          : "Useful second opinion for the discussion."
+      }
+    ],
+    similar_cases: [
+      {
+        case_id: "CASE-4812",
+        title: "Escalated tertiary review case",
+        specialty: specialty || "General Medicine",
+        description: "A prior clinician sought wider specialist input after first-line treatment underperformed.",
+        resolution: "Follow-up testing and multidisciplinary review narrowed the diagnosis and changed treatment."
+      },
+      {
+        case_id: "CASE-4387",
+        title: "Atypical presentation with delayed clarity",
+        specialty: specialty || "General Medicine",
+        description: "Symptoms appeared broad until history, labs, and imaging were reviewed together.",
+        resolution: "A focused workup narrowed the differential and improved the care plan."
+      },
+      {
+        case_id: "CASE-4021",
+        title: "Rare-pattern diagnostic discussion",
+        specialty: specialty || "General Medicine",
+        description: "Several common explanations were ruled out before the final diagnosis emerged.",
+        resolution: "Specialist escalation led to confirmation and more specific management."
+      }
+    ]
+  };
+}
+
+function createLocalCase(title: string, specialty: string, description: string): ForumCase {
+  return {
+    id: `local-${Date.now()}`,
+    doctorId: "demo-doctor",
+    authorName: "You",
+    title,
+    description,
+    specialty: specialty || "General Medicine",
+    status: "Shared",
+    createdAt: new Date().toISOString()
+  };
+}
+
+export function CollaborativeForum({ initialCases, viewerProfileId }: CollaborativeForumProps) {
   const [showPostForm, setShowPostForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"global" | "my">("global");
   const [replies, setReplies] = useState<ReplyState>({});
-  const [openReply, setOpenReply] = useState<string | null>(null);
+  const [openThread, setOpenThread] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<string | null>(null);
   const [invitedDoctors, setInvitedDoctors] = useState<Set<string>>(new Set());
+  const [commentsByCase, setCommentsByCase] = useState<Record<string, ForumComment[]>>({});
+  const [commentLoadingByCase, setCommentLoadingByCase] = useState<Record<string, boolean>>({});
 
-  // Post form state
   const [caseTitle, setCaseTitle] = useState("");
   const [caseSpecialty, setCaseSpecialty] = useState("");
   const [caseDescription, setCaseDescription] = useState("");
-  const [myCases, setMyCases] = useState<DiagnosisEntry[]>(Array.isArray(initialCases) ? initialCases : []);
+  const [cases, setCases] = useState<ForumCase[]>(Array.isArray(initialCases) ? initialCases : []);
 
-  // AI match state
   const [matchLoading, setMatchLoading] = useState(false);
-  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  const [matchResult, setMatchResult] = useState<ApiForumCaseMatchResponse | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [postedCaseId, setPostedCaseId] = useState<string | null>(null);
+
+  const myCases = cases.filter((item) => item.doctorId === viewerProfileId || item.authorName === "You");
+  const globalCases = cases.filter((item) => item.doctorId !== viewerProfileId && item.authorName !== "You");
+
+  const loadComments = async (caseId: string) => {
+    if (commentsByCase[caseId] || commentLoadingByCase[caseId]) return;
+
+    const accessToken = getBrowserAccessToken();
+    if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+      setCommentsByCase((prev) => ({ ...prev, [caseId]: [] }));
+      return;
+    }
+
+    setCommentLoadingByCase((prev) => ({ ...prev, [caseId]: true }));
+    try {
+      const data = await fetchFastApiJson<ApiForumCommentsResponse>(
+        `/api/forum/cases/${encodeURIComponent(caseId)}/comments`,
+        { accessToken }
+      );
+      setCommentsByCase((prev) => ({
+        ...prev,
+        [caseId]: data.comments.map(mapApiForumComment)
+      }));
+    } catch {
+      setCommentsByCase((prev) => ({ ...prev, [caseId]: [] }));
+    } finally {
+      setCommentLoadingByCase((prev) => ({ ...prev, [caseId]: false }));
+    }
+  };
+
+  const toggleThread = async (caseId: string) => {
+    if (openThread === caseId) {
+      setOpenThread(null);
+      return;
+    }
+
+    setOpenThread(caseId);
+    await loadComments(caseId);
+  };
 
   const handlePostCase = async () => {
     if (!caseTitle.trim() || !caseDescription.trim()) return;
 
-    // Add to my cases
-    const newCase: DiagnosisEntry = {
-      id: `my-${Date.now()}`,
-      caseId: `CASE-${Math.floor(Math.random() * 9000 + 1000)}`,
-      authorName: "You",
-      specialty: caseSpecialty || "General Medicine",
-      note: `${caseTitle}\n\n${caseDescription}`,
-      status: "Shared",
-      createdAt: new Date().toISOString(),
-      confidenceScore: 0
-    };
-    setMyCases((prev) => [newCase, ...(Array.isArray(prev) ? prev : [])]);
-    setPostedCaseId(newCase.id);
-    setShowPostForm(false);
-    setActiveTab("my");
-
-    // Trigger Groq AI matching
     setMatchLoading(true);
     setMatchResult(null);
     setMatchError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/cases/match", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: caseTitle,
-          specialty: caseSpecialty || "General Medicine",
-          description: caseDescription
-        })
-      });
-      const data: MatchResult = await response.json();
-      setMatchResult(data);
-    } catch {
-      setMatchError("Could not connect to AI backend. Make sure the server is running.");
+      const accessToken = getBrowserAccessToken();
+      const payload = {
+        title: caseTitle.trim(),
+        specialty: caseSpecialty.trim() || "General Medicine",
+        description: caseDescription.trim()
+      };
+
+      let createdCase: ForumCase;
+      let matched: ApiForumCaseMatchResponse;
+
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        createdCase = createLocalCase(payload.title, payload.specialty, payload.description);
+        matched = buildDemoMatchResult(payload.title, payload.specialty, payload.description);
+      } else {
+        const created = await fetchFastApiJson<ApiForumCaseItem>("/api/forum/cases", {
+          method: "POST",
+          accessToken,
+          body: JSON.stringify(payload)
+        });
+        const match = await fetchFastApiJson<ApiForumCaseMatchResponse>("/api/forum/cases/match", {
+          method: "POST",
+          accessToken,
+          body: JSON.stringify(payload)
+        });
+        createdCase = mapApiForumCase(created);
+        matched = match;
+      }
+
+      setCases((prev) => [createdCase, ...prev]);
+      setCommentsByCase((prev) => ({ ...prev, [createdCase.id]: [] }));
+      setPostedCaseId(createdCase.id);
+      setShowPostForm(false);
+      setActiveTab("my");
+      setOpenThread(createdCase.id);
+      setMatchResult(matched);
+      setCaseTitle("");
+      setCaseSpecialty("");
+      setCaseDescription("");
+    } catch (error) {
+      setMatchError(
+        error instanceof Error ? error.message : "Could not connect to the forum backend."
+      );
     } finally {
       setMatchLoading(false);
     }
-
-    setCaseTitle("");
-    setCaseSpecialty("");
-    setCaseDescription("");
   };
 
   const handleInvite = (doctorName: string) => {
     setInvitedDoctors((prev) => new Set(prev).add(doctorName));
   };
 
-  const handleReply = (caseId: string) => {
+  const handleReply = async (caseId: string) => {
     if (!replies[caseId]?.trim()) return;
-    setSavedStatus("Your solution has been shared with the case author.");
-    setReplies((prev) => ({ ...prev, [caseId]: "" }));
-    setOpenReply(null);
-    setTimeout(() => setSavedStatus(null), 4000);
+
+    try {
+      const accessToken = getBrowserAccessToken();
+      const message = replies[caseId].trim();
+      let createdComment: ForumComment;
+
+      if (!accessToken || accessToken === DEMO_SESSION_TOKEN) {
+        createdComment = {
+          id: `local-comment-${Date.now()}`,
+          caseId,
+          doctorId: viewerProfileId,
+          authorName: "You",
+          comment: message,
+          createdAt: new Date().toISOString()
+        };
+      } else {
+        const created = await fetchFastApiJson<ApiForumCommentItem>(
+          `/api/forum/cases/${encodeURIComponent(caseId)}/comments`,
+          {
+            method: "POST",
+            accessToken,
+            body: JSON.stringify({ comment: message })
+          }
+        );
+        createdComment = mapApiForumComment(created);
+      }
+
+      setCommentsByCase((prev) => ({
+        ...prev,
+        [caseId]: [...(prev[caseId] ?? []), createdComment]
+      }));
+      setReplies((prev) => ({ ...prev, [caseId]: "" }));
+      setSavedStatus("Your solution has been shared with the case author.");
+      setTimeout(() => setSavedStatus(null), 4000);
+    } catch (error) {
+      setSavedStatus(error instanceof Error ? error.message : "Unable to post your reply.");
+      setTimeout(() => setSavedStatus(null), 4000);
+    }
   };
 
   const statusVariant = (status: string) => {
@@ -174,14 +285,14 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
     return "secondary";
   };
 
-  const CaseCard = ({ c, showReply }: { c: DiagnosisEntry; showReply: boolean }) => (
+  const CaseCard = ({ c, showReply }: { c: ForumCase; showReply: boolean }) => (
     <Card className={postedCaseId === c.id ? "border-teal-300 ring-1 ring-teal-200" : ""}>
       <CardContent className="pt-5 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-0.5">
-                {c.caseId}
+                {buildCaseDisplayId(c.id)}
               </span>
               <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
               <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -194,50 +305,75 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
               <span className="text-slate-400">·</span>
               <span>{c.specialty}</span>
             </p>
+            <p className="text-base font-semibold text-slate-900">{c.title}</p>
           </div>
         </div>
-        <p className="text-sm text-slate-700 leading-7">{c.note}</p>
 
-        {showReply && (
-          <div>
-            {openReply === c.id ? (
-              <div className="space-y-3 border-t border-border/50 pt-4">
-                <Label>Your solution or suggestion</Label>
-                <Textarea
-                  placeholder="Share your clinical insight, diagnosis suggestion, or recommended next steps..."
-                  rows={3}
-                  value={replies[c.id] ?? ""}
-                  onChange={(e) => setReplies((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                />
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => handleReply(c.id)} className="gap-1.5">
-                    <MessageSquare className="h-3.5 w-3.5" /> Share Solution
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setOpenReply(null)}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button size="sm" variant="outline" className="gap-1.5 mt-1" onClick={() => setOpenReply(c.id)}>
-                <MessageSquare className="h-3.5 w-3.5" /> Respond to this case
-              </Button>
-            )}
+        <p className="text-sm text-slate-700 leading-7">{c.description}</p>
+
+        <div className="border-t border-border/50 pt-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <Button size="sm" variant="outline" className="gap-1.5 mt-1" onClick={() => void toggleThread(c.id)}>
+              <MessageSquare className="h-3.5 w-3.5" />
+              {openThread === c.id ? "Hide discussion" : "View discussion"}
+            </Button>
+            <span className="text-xs text-slate-400">
+              {(commentsByCase[c.id] ?? []).length} repl{(commentsByCase[c.id] ?? []).length === 1 ? "y" : "ies"}
+            </span>
           </div>
-        )}
+
+          {openThread === c.id ? (
+            <div className="space-y-3">
+              {commentLoadingByCase[c.id] ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
+                  Loading replies...
+                </div>
+              ) : (commentsByCase[c.id] ?? []).length > 0 ? (
+                (commentsByCase[c.id] ?? []).map((comment) => (
+                  <div key={comment.id} className="rounded-2xl border border-border/60 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-slate-900">{comment.authorName}</p>
+                      <span className="text-xs text-slate-400">{formatDateTime(comment.createdAt)}</span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{comment.comment}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No replies yet.</p>
+              )}
+
+              {showReply ? (
+                <>
+                  <Label>Your solution or suggestion</Label>
+                  <Textarea
+                    placeholder="Share your clinical insight, diagnosis suggestion, or recommended next steps..."
+                    rows={3}
+                    value={replies[c.id] ?? ""}
+                    onChange={(e) => setReplies((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => void handleReply(c.id)} className="gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5" /> Share Solution
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );
 
   return (
     <>
-      {savedStatus && (
+      {savedStatus ? (
         <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">
           {savedStatus}
         </div>
-      )}
+      ) : null}
 
-      {/* Tabs + Post button */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-2">
           <Button
@@ -263,13 +399,12 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
         </Button>
       </div>
 
-      {/* Post form */}
-      {showPostForm && (
+      {showPostForm ? (
         <Card className="border-teal-200 bg-teal-50/50">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Post a Difficult Case</CardTitle>
             <CardDescription>
-              Describe the case — Groq AI will instantly match relevant specialists and similar resolved cases.
+              Describe the case — the main FastAPI backend will match relevant specialists and similar resolved cases.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -310,10 +445,9 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
-      {/* AI Match Results — shown after posting */}
-      {(matchLoading || matchResult || matchError) && (
+      {matchLoading || matchResult || matchError ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <div className="h-px flex-1 bg-border" />
@@ -321,24 +455,23 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
             <div className="h-px flex-1 bg-border" />
           </div>
 
-          {matchLoading && (
+          {matchLoading ? (
             <Card className="border-dashed border-teal-300">
               <CardContent className="flex items-center justify-center gap-3 py-10 text-slate-500">
                 <Loader2 className="h-5 w-5 animate-spin text-teal-600" />
-                <p className="text-sm">Groq AI is analyzing your case and finding matches...</p>
+                <p className="text-sm">The backend AI matcher is analyzing your case and finding matches...</p>
               </CardContent>
             </Card>
-          )}
+          ) : null}
 
-          {matchError && (
+          {matchError ? (
             <Card className="border-rose-200 bg-rose-50">
               <CardContent className="pt-5 text-sm text-rose-700">{matchError}</CardContent>
             </Card>
-          )}
+          ) : null}
 
-          {matchResult && (
+          {matchResult ? (
             <div className="grid gap-6 lg:grid-cols-2">
-              {/* Matched Doctors */}
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
@@ -347,13 +480,13 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
                     </div>
                     <div>
                       <CardTitle className="text-base">Relevant Specialists</CardTitle>
-                      <CardDescription>Doctors matched by Groq AI based on your case</CardDescription>
+                      <CardDescription>Doctors matched by AI based on your case</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {matchResult.matched_doctors.map((doc, i) => (
-                    <div key={i} className="rounded-2xl border border-border/60 bg-slate-50 p-4 space-y-2">
+                  {matchResult.matched_doctors.map((doc) => (
+                    <div key={`${doc.name}-${doc.hospital}`} className="rounded-2xl border border-border/60 bg-slate-50 p-4 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-semibold text-slate-900">{doc.name}</p>
@@ -382,7 +515,6 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
                 </CardContent>
               </Card>
 
-              {/* Similar Cases with Resolutions */}
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
@@ -391,13 +523,13 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
                     </div>
                     <div>
                       <CardTitle className="text-base">Similar Past Cases</CardTitle>
-                      <CardDescription>Resolved cases matched by Groq AI — with outcomes</CardDescription>
+                      <CardDescription>Resolved cases matched by AI, with outcomes</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {matchResult.similar_cases.map((sc, i) => (
-                    <div key={i} className="rounded-2xl border border-border/60 bg-slate-50 p-4 space-y-2">
+                  {matchResult.similar_cases.map((sc) => (
+                    <div key={sc.case_id} className="rounded-2xl border border-border/60 bg-slate-50 p-4 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-2 py-0.5">
                           {sc.case_id}
@@ -415,18 +547,26 @@ export function CollaborativeForum({ initialCases }: CollaborativeForumProps) {
                 </CardContent>
               </Card>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
-      {/* Cases list */}
       <div className="space-y-4">
         {activeTab === "global" ? (
           <>
             <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">
               {globalCases.length} open cases from doctors worldwide
             </p>
-            {globalCases.map((c) => <CaseCard key={c.id} c={c} showReply={true} />)}
+            {globalCases.length === 0 ? (
+              <Card>
+                <CardContent className="pt-6 text-center text-slate-400">
+                  <Globe className="h-8 w-8 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No global cases have been posted yet.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              globalCases.map((c) => <CaseCard key={c.id} c={c} showReply={true} />)
+            )}
           </>
         ) : (
           <>

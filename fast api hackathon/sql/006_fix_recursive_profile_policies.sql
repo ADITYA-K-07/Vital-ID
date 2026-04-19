@@ -1,21 +1,6 @@
--- Enable RLS and align access with the merged FastAPI + forwarded JWT flow.
--- Assumptions:
---   profiles.id = auth.uid()
---   patients.user_id = profiles.id
---   doctor role is stored in profiles.role
-
-alter table public.profiles enable row level security;
-alter table public.patients enable row level security;
-alter table public.medical_records enable row level security;
-alter table public.alerts enable row level security;
-alter table public.restricted_records enable row level security;
-alter table public.ai_insights enable row level security;
-alter table public.cases enable row level security;
-alter table public.comments enable row level security;
-alter table public.consultations enable row level security;
-alter table public.treatment_history enable row level security;
-alter table public.medical_history enable row level security;
-alter table public.patient_visibility_settings enable row level security;
+-- Fix recursive RLS checks that queried public.profiles from inside
+-- policies on public.profiles and other tables.
+-- Safe to re-run.
 
 create or replace function public.is_doctor_viewer()
 returns boolean
@@ -45,14 +30,6 @@ using (
   or public.is_doctor_viewer()
 );
 
-drop policy if exists "profiles_self_update" on public.profiles;
-create policy "profiles_self_update"
-on public.profiles
-for update
-to authenticated
-using (id = auth.uid())
-with check (id = auth.uid());
-
 drop policy if exists "patients_self_or_doctors_select" on public.patients;
 create policy "patients_self_or_doctors_select"
 on public.patients
@@ -62,14 +39,6 @@ using (
   user_id = auth.uid()
   or public.is_doctor_viewer()
 );
-
-drop policy if exists "patients_self_update" on public.patients;
-create policy "patients_self_update"
-on public.patients
-for update
-to authenticated
-using (user_id = auth.uid())
-with check (user_id = auth.uid());
 
 drop policy if exists "medical_records_self_or_doctors_select" on public.medical_records;
 create policy "medical_records_self_or_doctors_select"

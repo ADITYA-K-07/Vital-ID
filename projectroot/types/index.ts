@@ -52,6 +52,7 @@ export interface TreatmentRecord {
   treatment: string;
   notes: string;
   followUp?: string;
+  addedBy?: "patient" | "doctor" | null;
 }
 
 export interface MedicalHistoryEntry {
@@ -62,6 +63,7 @@ export interface MedicalHistoryEntry {
   description: string;
   facility: string;
   doctorName: string;
+  addedBy?: "patient" | "doctor" | null;
 }
 
 // Field-level visibility permissions set by doctor
@@ -79,12 +81,34 @@ export interface FieldPermissions {
 
 export interface ProfileSummary {
   id: string;
+  vitalId: string | null;
   fullName: string;
   role: string;
   bloodType: string;
   emergencyContact: string;
   insuranceProvider: string;
   dob: string;
+}
+
+export interface ForumCase {
+  id: string;
+  doctorId: string;
+  authorName: string;
+  title: string;
+  symptoms?: string;
+  description: string;
+  specialty: string;
+  status: "Shared" | "Needs Review" | "Resolved";
+  createdAt: string;
+}
+
+export interface ForumComment {
+  id: string;
+  caseId: string;
+  doctorId: string;
+  authorName: string;
+  comment: string;
+  createdAt: string;
 }
 
 export interface ViewerContext {

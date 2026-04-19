@@ -10,6 +10,7 @@ export const mockDashboardData: DashboardData = {
   },
   profile: {
     id: "profile-demo-01",
+    vitalId: "VID-01DEMO",
     fullName: "Anika Sharma",
     role: "Patient",
     bloodType: "O+",

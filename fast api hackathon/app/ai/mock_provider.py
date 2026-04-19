@@ -4,6 +4,11 @@ from typing import Any
 
 from app.schemas.ai import AnalyzePatientResponse, RiskItem, UrgencyLevel
 from app.schemas.diagnosis import SimilarCaseItem, SimilarCasesResponse
+from app.schemas.forum import (
+    ForumCaseMatchResponse,
+    ForumMatchedDoctorItem,
+    ForumSimilarCaseItem,
+)
 from app.schemas.notes import NotesAnalyzeResponse
 from app.schemas.patterns import PatternDetectResponse, RiskFlag
 from app.utils.datetime import utc_now_iso
@@ -258,6 +263,73 @@ class MockClinicalAIProvider:
                 "Review prior notes for overlooked recurring symptoms.",
                 "Compare current history against previous treatment response.",
                 "Escalate to specialty review if clinical uncertainty persists.",
+            ],
+        )
+
+    async def match_forum_case(
+        self,
+        *,
+        title: str,
+        specialty: str,
+        description: str,
+    ) -> ForumCaseMatchResponse:
+        normalized = " ".join([title, specialty, description]).lower()
+        if "seizure" in normalized or "neuro" in normalized:
+            specialty_seed = "Neurology"
+            case_theme = "Cortical dysplasia workup"
+        elif "rash" in normalized or "joint" in normalized or "autoimmune" in normalized:
+            specialty_seed = "Rheumatology"
+            case_theme = "Autoimmune overlap syndrome review"
+        else:
+            specialty_seed = specialty or "General Medicine"
+            case_theme = "Multidisciplinary diagnostic review"
+
+        return ForumCaseMatchResponse(
+            matched_doctors=[
+                ForumMatchedDoctorItem(
+                    name="Dr. Asha Menon",
+                    specialty=specialty_seed,
+                    hospital="Apollo Clinical Centre",
+                    country="India",
+                    reason="Frequently manages complex referrals in this specialty area.",
+                ),
+                ForumMatchedDoctorItem(
+                    name="Dr. Daniel Brooks",
+                    specialty=specialty_seed,
+                    hospital="St. Mary's Teaching Hospital",
+                    country="United Kingdom",
+                    reason="Strong tertiary-care experience with unresolved diagnostic cases.",
+                ),
+                ForumMatchedDoctorItem(
+                    name="Dr. Sofia Alvarez",
+                    specialty=specialty_seed,
+                    hospital="University Hospital Madrid",
+                    country="Spain",
+                    reason="Known for multidisciplinary case conferences and rare presentations.",
+                ),
+            ],
+            similar_cases=[
+                ForumSimilarCaseItem(
+                    case_id="CASE-4812",
+                    title=case_theme,
+                    specialty=specialty_seed,
+                    description="Prior case with overlapping symptom progression and incomplete initial response to treatment.",
+                    resolution="Expanded specialty workup clarified the diagnosis and guided targeted therapy.",
+                ),
+                ForumSimilarCaseItem(
+                    case_id="CASE-4387",
+                    title="Atypical presentation requiring second-line review",
+                    specialty=specialty_seed,
+                    description="Patient presentation looked nonspecific until imaging and longitudinal history were reviewed together.",
+                    resolution="Escalated review changed the working diagnosis and improved the treatment plan.",
+                ),
+                ForumSimilarCaseItem(
+                    case_id="CASE-4021",
+                    title="Delayed diagnosis after broad differential screening",
+                    specialty=specialty_seed,
+                    description="Multiple common causes were excluded before a less frequent etiology emerged.",
+                    resolution="Focused follow-up testing confirmed the diagnosis and narrowed management decisions.",
+                ),
             ],
         )
 

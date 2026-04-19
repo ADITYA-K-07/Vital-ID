@@ -6,6 +6,7 @@ from app.db.supabase import SupabaseDataClient, get_request_data_client
 from app.schemas.forum import (
     ForumCaseCreateRequest,
     ForumCaseItem,
+    ForumCaseMatchResponse,
     ForumCasesResponse,
     ForumCommentCreateRequest,
     ForumCommentItem,
@@ -38,6 +39,15 @@ async def create_case(
         data_client=data_client,
         payload=payload,
     )
+
+
+@router.post("/forum/cases/match", response_model=ForumCaseMatchResponse)
+async def match_case(
+    payload: ForumCaseCreateRequest,
+    current_user: CurrentUser = Depends(require_roles(UserRole.DOCTOR)),
+    forum_service: ForumService = Depends(get_forum_service),
+) -> ForumCaseMatchResponse:
+    return await forum_service.match_case(payload=payload)
 
 
 @router.get("/forum/cases/{case_id}/comments", response_model=ForumCommentsResponse)

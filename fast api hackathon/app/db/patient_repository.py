@@ -4,6 +4,17 @@ from app.db.supabase import SupabaseDataClient
 
 
 class PatientRepository:
+    async def get_patient_by_vital_id(
+        self,
+        data_client: SupabaseDataClient,
+        vital_id: str,
+    ) -> dict[str, Any] | None:
+        return await data_client.select_one(
+            "patients",
+            columns="*",
+            filters={"vital_id": f"eq.{vital_id}"},
+        )
+
     async def get_patient_by_id(
         self,
         data_client: SupabaseDataClient,
@@ -60,6 +71,15 @@ class PatientRepository:
         payload: dict[str, Any],
     ) -> dict[str, Any] | None:
         rows = await data_client.insert("medical_records", payload=payload)
+        return rows[0] if rows else None
+
+    async def create_patient(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await data_client.insert("patients", payload=payload)
         return rows[0] if rows else None
 
     async def update_patient(
@@ -125,6 +145,24 @@ class PatientRepository:
             on_conflict="id",
         )
         return rows[0] if rows else None
+
+    async def find_patient_by_identifier(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        identifier: str,
+    ) -> dict[str, Any] | None:
+        patient = await self.get_patient_by_vital_id(
+            data_client=data_client,
+            vital_id=identifier,
+        )
+        if patient:
+            return patient
+
+        return await self.get_patient_by_id(
+            data_client=data_client,
+            patient_id=identifier,
+        )
 
     async def list_patient_credentials(
         self,

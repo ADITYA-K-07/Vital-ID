@@ -13,7 +13,10 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)) -> MeRes
         user_id=current_user.auth_user_id,
         profile_id=current_user.profile_id,
         patient_id=current_user.patient_id,
+        vital_id=current_user.vital_id,
         name=current_user.name,
         email=current_user.email,
         role=current_user.role,
+        license_number=current_user.license_number,
+        license_verified=current_user.license_verified,
     )

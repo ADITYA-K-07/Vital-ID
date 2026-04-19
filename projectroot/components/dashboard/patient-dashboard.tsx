@@ -37,7 +37,7 @@ export function PatientDashboard({ data }: PatientDashboardProps) {
   const latestRecord = medicalRecords[0];
   const qrRef = useRef<HTMLDivElement>(null);
 
-  const vitalIdNumber = `VID-${profile.id.slice(-6).toUpperCase()}`;
+  const vitalIdNumber = profile.vitalId ?? `VID-${profile.id.slice(-6).toUpperCase()}`;
 
   const qrData = JSON.stringify({
     vitalId: vitalIdNumber,

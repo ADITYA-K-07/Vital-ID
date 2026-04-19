@@ -17,13 +17,17 @@ from app.schemas.ai import RiskItem, StoredAIInsightItem
 from app.schemas.alerts import AlertItem
 from app.schemas.patient import (
     ConsultationItem,
+    DoctorDiagnosisCreateRequest,
+    DoctorTreatmentCreateRequest,
     FieldPermissions,
     MedicalHistoryItem,
     MedicalRecordItem,
+    PatientMedicalHistoryCreateRequest,
     PatientDashboardResponse,
     PatientFullProfileResponse,
     PatientIdentityResponse,
     PatientIdentityUpdateRequest,
+    PatientTreatmentHistoryCreateRequest,
     PatientProfileItem,
     TreatmentHistoryItem,
 )
@@ -80,6 +84,35 @@ class PatientService:
             ],
             medical_history=[self._shape_history(row) for row in bundle["medical_history"]],
             field_permissions=self._shape_permissions(bundle["visibility"]),
+        )
+
+    async def lookup_patient(
+        self,
+        *,
+        current_user: CurrentUser,
+        identifier: str,
+        data_client: SupabaseDataClient,
+    ) -> PatientFullProfileResponse:
+        if current_user.role != UserRole.DOCTOR:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only doctors can look up other patients.",
+            )
+
+        patient = await self.patient_repository.find_patient_by_identifier(
+            data_client=data_client,
+            identifier=identifier,
+        )
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient record was not found.",
+            )
+
+        return await self.get_full_profile(
+            current_user=current_user,
+            patient_id=str(patient["id"]),
+            data_client=data_client,
         )
 
     async def get_my_identity(
@@ -215,6 +248,208 @@ class PatientService:
                 payload=record_payload,
             )
 
+        return await self.get_my_identity(current_user=current_user, data_client=data_client)
+
+    async def create_doctor_diagnosis(
+        self,
+        *,
+        current_user: CurrentUser,
+        patient_id: str,
+        payload: DoctorDiagnosisCreateRequest,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientFullProfileResponse:
+        patient = await self._resolve_patient_for_request(
+            current_user=current_user,
+            patient_id=patient_id,
+            data_client=data_client,
+        )
+        write_client = service_data_client or data_client
+        created = await self.patient_repository.create_medical_record(
+            data_client=write_client,
+            payload={
+                "patient_id": str(patient["id"]),
+                "doctor_id": current_user.profile_id,
+                "diagnosis": payload.diagnosis,
+                "notes": payload.diagnosis,
+            },
+        )
+        if not created:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to create diagnosis record.",
+            )
+
+        return await self.get_full_profile(
+            current_user=current_user,
+            patient_id=str(patient["id"]),
+            data_client=data_client,
+        )
+
+    async def create_doctor_treatment(
+        self,
+        *,
+        current_user: CurrentUser,
+        patient_id: str,
+        payload: DoctorTreatmentCreateRequest,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientFullProfileResponse:
+        patient = await self._resolve_patient_for_request(
+            current_user=current_user,
+            patient_id=patient_id,
+            data_client=data_client,
+        )
+        write_client = service_data_client or data_client
+        created = await self.treatment_repository.create_entry(
+            data_client=write_client,
+            payload={
+                "patient_id": str(patient["id"]),
+                "doctor_id": current_user.profile_id,
+                "treatment": payload.treatment,
+                "notes": payload.treatment,
+                "added_by": "doctor",
+            },
+        )
+        if not created:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to create treatment record.",
+            )
+
+        return await self.get_full_profile(
+            current_user=current_user,
+            patient_id=str(patient["id"]),
+            data_client=data_client,
+        )
+
+    async def create_patient_treatment_history(
+        self,
+        *,
+        current_user: CurrentUser,
+        payload: PatientTreatmentHistoryCreateRequest,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientIdentityResponse:
+        self._require_patient_self_access(current_user=current_user)
+
+        write_client = service_data_client or data_client
+        created = await self.treatment_repository.create_entry(
+            data_client=write_client,
+            payload={
+                "patient_id": current_user.patient_id,
+                "doctor_id": None,
+                "doctor_name": payload.doctor_name,
+                "specialty": payload.specialty,
+                "diagnosis": payload.diagnosis,
+                "treatment": payload.treatment,
+                "notes": payload.notes,
+                "follow_up_date": payload.follow_up_date,
+                "added_by": "patient",
+            },
+        )
+        if not created:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to save treatment history entry.",
+            )
+
+        return await self.get_my_identity(current_user=current_user, data_client=data_client)
+
+    async def delete_patient_treatment_history(
+        self,
+        *,
+        current_user: CurrentUser,
+        treatment_id: str,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientIdentityResponse:
+        self._require_patient_self_access(current_user=current_user)
+
+        existing = await self.treatment_repository.get_by_id(
+            data_client=data_client,
+            treatment_id=treatment_id,
+        )
+        self._assert_patient_owned_row(
+            row=existing,
+            row_name="Treatment history entry",
+            patient_id=current_user.patient_id,
+        )
+        if existing.get("added_by") != "patient":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patients can only delete their own self-authored entries.",
+            )
+
+        write_client = service_data_client or data_client
+        await self.treatment_repository.delete_entry(
+            data_client=write_client,
+            treatment_id=treatment_id,
+        )
+        return await self.get_my_identity(current_user=current_user, data_client=data_client)
+
+    async def create_patient_medical_history(
+        self,
+        *,
+        current_user: CurrentUser,
+        payload: PatientMedicalHistoryCreateRequest,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientIdentityResponse:
+        self._require_patient_self_access(current_user=current_user)
+
+        write_client = service_data_client or data_client
+        created = await self.medical_history_repository.create_entry(
+            data_client=write_client,
+            payload={
+                "patient_id": current_user.patient_id,
+                "event_type": payload.event_type,
+                "title": payload.title,
+                "description": payload.description,
+                "facility": payload.facility,
+                "doctor_name": payload.doctor_name,
+                "event_date": payload.event_date,
+                "added_by": "patient",
+            },
+        )
+        if not created:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to save medical history entry.",
+            )
+
+        return await self.get_my_identity(current_user=current_user, data_client=data_client)
+
+    async def delete_patient_medical_history(
+        self,
+        *,
+        current_user: CurrentUser,
+        history_id: str,
+        data_client: SupabaseDataClient,
+        service_data_client: SupabaseDataClient | None,
+    ) -> PatientIdentityResponse:
+        self._require_patient_self_access(current_user=current_user)
+
+        existing = await self.medical_history_repository.get_by_id(
+            data_client=data_client,
+            history_id=history_id,
+        )
+        self._assert_patient_owned_row(
+            row=existing,
+            row_name="Medical history entry",
+            patient_id=current_user.patient_id,
+        )
+        if existing.get("added_by") != "patient":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patients can only delete their own self-authored entries.",
+            )
+
+        write_client = service_data_client or data_client
+        await self.medical_history_repository.delete_entry(
+            data_client=write_client,
+            history_id=history_id,
+        )
         return await self.get_my_identity(current_user=current_user, data_client=data_client)
 
     async def load_patient_bundle(
@@ -365,6 +600,7 @@ class PatientService:
         return PatientProfileItem(
             id=str(patient["id"]),
             user_id=patient.get("user_id"),
+            vital_id=patient.get("vital_id"),
             full_name=profile.get("full_name") or "Unknown patient",
             role=(profile.get("role") or "patient").title(),
             age=patient.get("age"),
@@ -467,6 +703,7 @@ class PatientService:
             treatment=row.get("treatment"),
             notes=row.get("notes"),
             follow_up_date=row.get("follow_up_date"),
+            added_by=row.get("added_by"),
             created_at=row.get("created_at"),
         )
 
@@ -479,6 +716,7 @@ class PatientService:
             facility=row.get("facility"),
             doctor_name=row.get("doctor_name"),
             event_date=row.get("event_date"),
+            added_by=row.get("added_by"),
             created_at=row.get("created_at"),
         )
 
@@ -506,3 +744,28 @@ class PatientService:
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return [str(value)]
+
+    def _require_patient_self_access(self, *, current_user: CurrentUser) -> None:
+        if current_user.role != UserRole.PATIENT or not current_user.patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only patients can manage their own history entries.",
+            )
+
+    def _assert_patient_owned_row(
+        self,
+        *,
+        row: dict[str, Any] | None,
+        row_name: str,
+        patient_id: str | None,
+    ) -> None:
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"{row_name} was not found.",
+            )
+        if row.get("patient_id") != patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{row_name} does not belong to the current patient.",
+            )

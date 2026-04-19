@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import Settings
 from app.schemas.diagnosis import SimilarCasesResponse
+from app.schemas.forum import ForumCaseMatchResponse
 from app.schemas.notes import NotesAnalyzeResponse
 from app.schemas.patterns import PatternDetectResponse
 
@@ -128,6 +129,46 @@ Return only valid JSON with:
 """
         payload = await self._complete_json(prompt=prompt)
         return SimilarCasesResponse(**payload)
+
+    async def match_forum_case(
+        self,
+        *,
+        title: str,
+        specialty: str,
+        description: str,
+    ) -> ForumCaseMatchResponse:
+        prompt = f"""
+You are a medical AI assistant for a collaborative diagnosis platform.
+
+A doctor has posted this case:
+Title: {title}
+Specialty: {specialty}
+Description: {description}
+
+Return only valid JSON in this exact shape:
+{{
+  "matched_doctors": [
+    {{
+      "name": "Dr. Full Name",
+      "specialty": "Specialty",
+      "hospital": "Hospital Name",
+      "country": "Country",
+      "reason": "Why this doctor is relevant to the case"
+    }}
+  ],
+  "similar_cases": [
+    {{
+      "case_id": "CASE-XXXX",
+      "title": "Case title",
+      "specialty": "Specialty",
+      "description": "Brief description of the case and patient presentation",
+      "resolution": "Final diagnosis and how it was treated or resolved"
+    }}
+  ]
+}}
+"""
+        payload = await self._complete_json(prompt=prompt)
+        return ForumCaseMatchResponse(**payload)
 
     async def _complete_json(self, *, prompt: str) -> dict[str, Any]:
         if not self.settings.groq_api_key:

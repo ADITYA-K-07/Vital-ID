@@ -28,12 +28,15 @@ import { DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 function createDemoPatientLookup(): PatientLookupData {
   return {
     patientId: mockDashboardData.profile.id,
+    vitalId: mockDashboardData.profile.vitalId,
     profile: mockDashboardData.profile,
     age: null,
     allergies: mockDashboardData.medicalRecords[0]?.allergies ?? [],
     conditions: mockDashboardData.medicalRecords[0]?.conditions ?? [],
     vaccinations: [],
-    medicalRecords: mockDashboardData.medicalRecords
+    medicalRecords: mockDashboardData.medicalRecords,
+    treatmentHistory: mockDashboardData.treatmentHistory,
+    medicalHistory: mockDashboardData.medicalHistory
   };
 }
 
@@ -60,7 +63,7 @@ export function DoctorAiTools() {
       }
 
       const data = await fetchFastApiJson<ApiPatientFullProfileResponse>(
-        `/api/patients/${encodeURIComponent(patientId.trim())}/full-profile`,
+        `/api/patients/lookup/${encodeURIComponent(patientId.trim())}`,
         {
           accessToken
         }
@@ -94,7 +97,7 @@ export function DoctorAiTools() {
                 id="ai-patient-id"
                 value={patientId}
                 onChange={(event) => setPatientId(event.target.value)}
-                placeholder="Enter patient ID"
+                placeholder="Enter VitalID or patient UUID"
               />
             </div>
             <Button type="submit" className="gap-2" disabled={loading}>

@@ -1,10 +1,33 @@
+import { cookies } from "next/headers";
 import { getDashboardData } from "@/lib/dashboard-data";
+import {
+  type ApiForumCasesResponse,
+  fetchFastApiJson,
+  mapApiForumCase
+} from "@/lib/fastapi";
+import { AUTH_COOKIE_NAME, DEMO_SESSION_TOKEN } from "@/lib/supabase/client";
 import { redirect } from "next/navigation";
 import { CollaborativeForum } from "@/components/dashboard/collaborative-forum";
+import type { ForumCase } from "@/types";
 
 export default async function DiagnosisPage() {
   const data = await getDashboardData();
   if (data.viewer.role !== "doctor") redirect("/dashboard");
+
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  let initialCases: ForumCase[] = [];
+
+  if (accessToken && accessToken !== DEMO_SESSION_TOKEN) {
+    try {
+      const forumData = await fetchFastApiJson<ApiForumCasesResponse>("/api/forum/cases", {
+        accessToken
+      });
+      initialCases = forumData.cases.map(mapApiForumCase);
+    } catch {
+      initialCases = [];
+    }
+  }
 
   return (
     <>
@@ -15,7 +38,10 @@ export default async function DiagnosisPage() {
           Post difficult cases for the global doctor community to review. Browse open cases and share your expertise with fellow clinicians worldwide.
         </p>
       </div>
-      <CollaborativeForum />
+      <CollaborativeForum
+        initialCases={initialCases}
+        viewerProfileId={data.profile.id}
+      />
     </>
   );
 }

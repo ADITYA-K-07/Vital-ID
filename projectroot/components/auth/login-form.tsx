@@ -26,6 +26,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  type ApiDoctorLicenseCheckResponse,
+  type ApiSessionBootstrapRequest,
+  type ApiSessionBootstrapResponse,
+  fetchFastApiJson
+} from "@/lib/fastapi";
+import {
   AUTH_COOKIE_NAME,
   AUTH_LICENSE_COOKIE_NAME,
   AUTH_LICENSE_VERIFIED_COOKIE_NAME,
@@ -67,12 +73,34 @@ function setSessionCookies({
   document.cookie = `${AUTH_LICENSE_VERIFIED_COOKIE_NAME}=${licenseVerified}; path=/; max-age=86400; samesite=lax`;
 }
 
-// Generate a random VitalID
-function generateVitalId() {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "VID-";
-  for (let i = 0; i < 6; i++) result += chars[Math.floor(Math.random() * chars.length)];
-  return result;
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
+function getSignupFailureMessage({
+  errorMessage,
+  hasUser,
+  hasSession
+}: {
+  errorMessage?: string | null;
+  hasUser: boolean;
+  hasSession: boolean;
+}) {
+  if (errorMessage) {
+    return `Signup failed: ${errorMessage}`;
+  }
+
+  if (hasUser && !hasSession) {
+    return "Signup succeeded, but Supabase did not return a session. Email confirmation is probably enabled. Disable email confirmation for local/dev instant signup, then try again.";
+  }
+
+  return "Signup failed: Unable to create account.";
 }
 
 export function LoginForm() {
@@ -134,13 +162,20 @@ export function LoginForm() {
       if (!isValidLicenseFormat(normalizedLicense)) {
         throw new Error("Enter a valid licence number, for example MED-20458.");
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 500));
-      setVerifiedLicenseNumber(normalizedLicense);
-      setLicenseStatus(
-        hasSupabaseEnv()
-          ? "Licence number verified. Doctor access is unlocked."
-          : "Demo licence verification complete."
-      );
+
+      if (!hasSupabaseEnv()) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        setVerifiedLicenseNumber(normalizedLicense);
+        setLicenseStatus("Demo licence verification complete.");
+        return;
+      }
+
+      const response = await fetchFastApiJson<ApiDoctorLicenseCheckResponse>("/api/auth/doctor/license-check", {
+        method: "POST",
+        body: JSON.stringify({ license_number: normalizedLicense })
+      });
+      setVerifiedLicenseNumber(response.license_number);
+      setLicenseStatus(response.message);
     } catch (error) {
       setVerifiedLicenseNumber(null);
       setLicenseStatus(error instanceof Error ? error.message : "Licence verification failed.");
@@ -181,11 +216,21 @@ export function LoginForm() {
         throw new Error(error?.message ?? "Unable to sign in.");
       }
 
+      const bootstrapPayload: ApiSessionBootstrapRequest = {
+        role: mode,
+        license_number: isDoctorMode ? normalizedLicense : null
+      };
+      const bootstrap = await fetchFastApiJson<ApiSessionBootstrapResponse>("/api/session/bootstrap", {
+        method: "POST",
+        accessToken: data.session.access_token,
+        body: JSON.stringify(bootstrapPayload)
+      });
+
       setSessionCookies({
         accessToken: data.session.access_token,
-        role: mode,
-        licenseNumber: isDoctorMode ? normalizedLicense : null,
-        licenseVerified: isDoctorMode
+        role: bootstrap.role,
+        licenseNumber: bootstrap.license_number ?? null,
+        licenseVerified: bootstrap.license_verified ?? false
       });
       router.push("/dashboard");
       router.refresh();
@@ -215,12 +260,84 @@ export function LoginForm() {
 
     setRegLoading(true);
     try {
-      // Simulate account creation (replace with Supabase signup in production)
-      await new Promise((r) => setTimeout(r, 1000));
-      const newVitalId = generateVitalId();
-      setGeneratedVitalId(newVitalId);
-    } catch {
-      setRegError("Failed to create account. Please try again.");
+      if (!hasSupabaseEnv()) {
+        await new Promise((r) => setTimeout(r, 1000));
+        setGeneratedVitalId("VID-01DEMO");
+        return;
+      }
+
+      const supabase = createBrowserSupabaseClient();
+      if (!supabase) throw new Error("Supabase client could not be created.");
+
+      const signupPayload = {
+        email: regEmail,
+        password: regPassword,
+        options: {
+          data: {
+            name: regFullName,
+            role: "patient"
+          }
+        }
+      };
+
+      const { data, error } = await supabase.auth.signUp(signupPayload);
+      const accessToken = data.session?.access_token ?? null;
+
+      if (error || !accessToken) {
+        const message = getSignupFailureMessage({
+          errorMessage: error?.message,
+          hasUser: Boolean(data.user),
+          hasSession: Boolean(accessToken)
+        });
+        console.error("Patient registration signup failed.", {
+          email: regEmail,
+          phase: "signup",
+          userId: data.user?.id ?? null,
+          error
+        });
+        throw new Error(message);
+      }
+
+      const bootstrapPayload = {
+        role: "patient",
+        full_name: regFullName,
+        blood_group: regBloodType,
+        dob: regDob,
+        emergency_contact: regPhone || null,
+        allergies: regAllergies
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      } satisfies ApiSessionBootstrapRequest;
+
+      let bootstrap: ApiSessionBootstrapResponse;
+      try {
+        bootstrap = await fetchFastApiJson<ApiSessionBootstrapResponse>("/api/session/bootstrap", {
+          method: "POST",
+          accessToken,
+          body: JSON.stringify(bootstrapPayload)
+        });
+      } catch (error) {
+        console.error("Patient registration bootstrap failed.", {
+          email: regEmail,
+          phase: "bootstrap",
+          userId: data.user?.id ?? null,
+          payload: bootstrapPayload,
+          error
+        });
+        throw new Error(
+          `Account created, but profile setup failed: ${getErrorMessage(
+            error,
+            "Session bootstrap failed."
+          )}`
+        );
+      }
+
+      setPatientEmail(regEmail);
+      setPatientPassword(regPassword);
+      setGeneratedVitalId(bootstrap.vital_id ?? null);
+    } catch (error) {
+      setRegError(getErrorMessage(error, "Failed to create account. Please try again."));
     } finally {
       setRegLoading(false);
     }
@@ -288,7 +405,7 @@ export function LoginForm() {
               </Button>
               <p className="text-center text-xs text-slate-500">
                 Don't have a VitalID?{" "}
-                <button type="button" onClick={() => handleTabChange("register")} className="font-semibold text-teal-700 hover:underline">
+                <button type="button" onClick={() => handleTabChange("register")} className="font-semibold text-teal-700 hover:underline" suppressHydrationWarning>
                   Create one free
                 </button>
               </p>
@@ -451,7 +568,7 @@ export function LoginForm() {
 
                 <p className="text-center text-xs text-slate-500">
                   Already have a VitalID?{" "}
-                  <button type="button" onClick={() => handleTabChange("patient")} className="font-semibold text-teal-700 hover:underline">
+                  <button type="button" onClick={() => handleTabChange("patient")} className="font-semibold text-teal-700 hover:underline" suppressHydrationWarning>
                     Sign in
                   </button>
                 </p>

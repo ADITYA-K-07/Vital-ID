@@ -175,9 +175,11 @@ def get_forum_service(
     case_repository: CaseRepository = Depends(get_case_repository),
     comment_repository: CommentRepository = Depends(get_comment_repository),
     user_repository: UserRepository = Depends(get_user_repository),
+    provider: ClinicalAIProvider = Depends(get_clinical_ai_provider),
 ) -> ForumService:
     return ForumService(
         case_repository=case_repository,
         comment_repository=comment_repository,
         user_repository=user_repository,
+        provider=provider,
     )

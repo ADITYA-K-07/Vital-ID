@@ -18,3 +18,36 @@ class TreatmentRepository:
             order_by="created_at",
             limit=limit,
         )
+
+    async def get_by_id(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        treatment_id: str,
+    ) -> dict[str, Any] | None:
+        return await data_client.select_one(
+            "treatment_history",
+            columns="*",
+            filters={"id": f"eq.{treatment_id}"},
+        )
+
+    async def create_entry(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await data_client.insert("treatment_history", payload=payload)
+        return rows[0] if rows else None
+
+    async def delete_entry(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        treatment_id: str,
+    ) -> dict[str, Any] | None:
+        rows = await data_client.delete_rows(
+            "treatment_history",
+            filters={"id": f"eq.{treatment_id}"},
+        )
+        return rows[0] if rows else None

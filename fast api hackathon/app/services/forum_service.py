@@ -1,6 +1,7 @@
 from fastapi import HTTPException, status
 
 from app.auth.models import CurrentUser
+from app.ai.provider import ClinicalAIProvider
 from app.db.case_repository import CaseRepository
 from app.db.comment_repository import CommentRepository
 from app.db.supabase import SupabaseDataClient
@@ -8,6 +9,7 @@ from app.db.user_repository import UserRepository
 from app.schemas.forum import (
     ForumCaseCreateRequest,
     ForumCaseItem,
+    ForumCaseMatchResponse,
     ForumCasesResponse,
     ForumCommentCreateRequest,
     ForumCommentItem,
@@ -21,10 +23,12 @@ class ForumService:
         case_repository: CaseRepository,
         comment_repository: CommentRepository,
         user_repository: UserRepository,
+        provider: ClinicalAIProvider,
     ) -> None:
         self.case_repository = case_repository
         self.comment_repository = comment_repository
         self.user_repository = user_repository
+        self.provider = provider
 
     async def list_cases(
         self,
@@ -152,4 +156,15 @@ class ForumService:
             author_name=current_user.name,
             comment=created.get("comment") or payload.comment,
             created_at=created.get("created_at"),
+        )
+
+    async def match_case(
+        self,
+        *,
+        payload: ForumCaseCreateRequest,
+    ) -> ForumCaseMatchResponse:
+        return await self.provider.match_forum_case(
+            title=payload.title,
+            specialty=payload.specialty or "General Medicine",
+            description=payload.description,
         )

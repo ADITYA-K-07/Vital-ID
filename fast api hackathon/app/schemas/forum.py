@@ -40,3 +40,24 @@ class ForumCommentItem(BaseModel):
 
 class ForumCommentsResponse(BaseModel):
     comments: list[ForumCommentItem] = Field(default_factory=list)
+
+
+class ForumMatchedDoctorItem(BaseModel):
+    name: str
+    specialty: str
+    hospital: str
+    country: str
+    reason: str
+
+
+class ForumSimilarCaseItem(BaseModel):
+    case_id: str
+    title: str
+    specialty: str
+    description: str
+    resolution: str
+
+
+class ForumCaseMatchResponse(BaseModel):
+    matched_doctors: list[ForumMatchedDoctorItem] = Field(default_factory=list)
+    similar_cases: list[ForumSimilarCaseItem] = Field(default_factory=list)

@@ -47,13 +47,20 @@ export async function getDashboardData(): Promise<DashboardData> {
       accessToken
     });
 
+    const resolvedViewer = {
+      ...viewer,
+      licenseNumber: me.license_number ?? viewer.licenseNumber,
+      licenseVerified: me.license_verified ?? viewer.licenseVerified
+    };
+
     return {
       ...mockDashboardData,
       demoMode: false,
-      viewer,
+      viewer: resolvedViewer,
       profile: {
         ...mockDashboardData.profile,
         id: me.profile_id,
+        vitalId: me.vital_id ?? null,
         fullName: me.name,
         role: "Doctor"
       },

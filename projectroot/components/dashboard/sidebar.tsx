@@ -60,7 +60,7 @@ export function DashboardSidebar({ demoMode, profile, viewerRole, licenseNumber,
     bloodType: profile.bloodType,
     dob: profile.dob,
     emergencyContact: profile.emergencyContact,
-    vitalId: profile.id
+    vitalId: profile.vitalId ?? profile.id
   });
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
@@ -106,7 +106,7 @@ export function DashboardSidebar({ demoMode, profile, viewerRole, licenseNumber,
               {viewerRole === "doctor" ? "Logged in as" : "Primary record"}
             </p>
             <h2 className="mt-0.5 text-base font-semibold text-white leading-tight truncate">
-              {viewerRole === "doctor" ? `Dr. ${licenseNumber ?? "Verified"}` : profile.fullName}
+              {viewerRole === "doctor" ? profile.fullName : profile.fullName}
             </h2>
           </div>
           <Badge className="shrink-0 border-white/10 bg-white/5 text-slate-100 text-[10px]" variant="outline">

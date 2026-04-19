@@ -1,6 +1,7 @@
 from typing import Any, Protocol
 
 from app.schemas.diagnosis import SimilarCasesResponse
+from app.schemas.forum import ForumCaseMatchResponse
 from app.schemas.notes import NotesAnalyzeResponse
 from app.schemas.patterns import PatternDetectResponse
 
@@ -32,4 +33,13 @@ class ClinicalAIProvider(Protocol):
         history: str,
         current_diagnosis: str,
     ) -> SimilarCasesResponse:
+        ...
+
+    async def match_forum_case(
+        self,
+        *,
+        title: str,
+        specialty: str,
+        description: str,
+    ) -> ForumCaseMatchResponse:
         ...

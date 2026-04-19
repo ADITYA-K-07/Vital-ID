@@ -33,12 +33,19 @@ class SupabaseAuthGateway:
 
 
 class SupabaseDataClient:
-    def __init__(self, settings: Settings, access_token: str) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        access_token: str,
+        *,
+        api_key: str | None = None,
+    ) -> None:
         self.settings = settings
         self.base_url = f"{settings.supabase_url}/rest/v1"
         self.access_token = access_token
+        auth_key = api_key or settings.supabase_anon_key
         self.default_headers = {
-            "apikey": settings.supabase_anon_key,
+            "apikey": auth_key,
             "Authorization": f"Bearer {access_token}",
             "Accept-Profile": settings.supabase_schema,
             "Content-Profile": settings.supabase_schema,
@@ -179,6 +186,32 @@ class SupabaseDataClient:
             return [data]
         return []
 
+    async def delete_rows(
+        self,
+        table: str,
+        *,
+        filters: dict[str, str],
+        returning: str = "representation",
+    ) -> list[dict[str, Any]]:
+        headers = {
+            **self.default_headers,
+            "Prefer": f"return={returning}",
+        }
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            response = await client.delete(
+                f"{self.base_url}/{table}",
+                headers=headers,
+                params=filters,
+            )
+
+        self._raise_for_status(response)
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return [data]
+        return []
+
     def _raise_for_status(self, response: httpx.Response) -> None:
         if response.is_success:
             return
@@ -224,3 +257,16 @@ def get_request_data_client(
     settings: Settings = Depends(get_settings),
 ) -> SupabaseDataClient:
     return SupabaseDataClient(settings=settings, access_token=access_token)
+
+
+def get_service_data_client(
+    settings: Settings = Depends(get_settings),
+) -> SupabaseDataClient | None:
+    if not settings.has_service_role_key:
+        return None
+
+    return SupabaseDataClient(
+        settings=settings,
+        access_token=settings.supabase_service_role_key,
+        api_key=settings.supabase_service_role_key,
+    )

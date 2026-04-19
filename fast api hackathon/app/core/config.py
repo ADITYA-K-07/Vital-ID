@@ -5,6 +5,20 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
+def _is_placeholder_value(value: str | None) -> bool:
+    if value is None:
+        return True
+
+    normalized = value.strip().lower()
+    return (
+        normalized == ""
+        or "your-project" in normalized
+        or "your-anon-key" in normalized
+        or "your-supabase-service-role-key" in normalized
+        or "example" in normalized
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -59,6 +73,10 @@ class Settings(BaseSettings):
     @property
     def is_groq_ai(self) -> bool:
         return self.ai_mode.lower() == "groq"
+
+    @property
+    def has_service_role_key(self) -> bool:
+        return not _is_placeholder_value(self.supabase_service_role_key)
 
 
 @lru_cache
