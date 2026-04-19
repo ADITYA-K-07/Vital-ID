@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     )
     request_timeout_seconds: float = 15.0
 
-    supabase_url: str
-    supabase_anon_key: str
+    supabase_url: str = Field(env=["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"])
+    supabase_anon_key: str = Field(env=["SUPABASE_ANON_KEY", "SUPABASE_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY"])
     supabase_service_role_key: str | None = None
     supabase_schema: str = "public"
 

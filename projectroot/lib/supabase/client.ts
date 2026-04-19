@@ -12,8 +12,10 @@ export function isSessionRole(value: string | undefined | null): value is "docto
 
 export function getSupabaseEnv() {
   return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    url:
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL,
+    anonKey:
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
   };
 }
 
