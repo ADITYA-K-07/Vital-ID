@@ -4,6 +4,17 @@ from app.db.supabase import SupabaseDataClient
 
 
 class PatientRepository:
+    def _normalize_identifier(self, identifier: str) -> str:
+        return identifier.strip()
+
+    def _normalize_vital_id(self, identifier: str) -> str:
+        compact = "".join(identifier.split()).upper()
+
+        if compact.startswith("VID") and len(compact) > 3 and compact[3] != "-":
+            compact = f"VID-{compact[3:]}"
+
+        return compact
+
     async def get_patient_by_vital_id(
         self,
         data_client: SupabaseDataClient,
@@ -152,16 +163,29 @@ class PatientRepository:
         *,
         identifier: str,
     ) -> dict[str, Any] | None:
+        normalized_identifier = self._normalize_identifier(identifier)
+        if not normalized_identifier:
+            return None
+
         patient = await self.get_patient_by_vital_id(
             data_client=data_client,
-            vital_id=identifier,
+            vital_id=normalized_identifier,
         )
         if patient:
             return patient
 
+        canonical_vital_id = self._normalize_vital_id(normalized_identifier)
+        if canonical_vital_id != normalized_identifier:
+            patient = await self.get_patient_by_vital_id(
+                data_client=data_client,
+                vital_id=canonical_vital_id,
+            )
+            if patient:
+                return patient
+
         return await self.get_patient_by_id(
             data_client=data_client,
-            patient_id=identifier,
+            patient_id=normalized_identifier,
         )
 
     async def list_patient_credentials(
