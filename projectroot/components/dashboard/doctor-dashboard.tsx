@@ -331,13 +331,21 @@ export function DoctorDashboard() {
               <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
             </div>
           ) : null}
+          {p ? (
+            <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-800">
+              Loaded <span className="font-semibold">{p.profile.fullName}</span>
+              {p.vitalId ? ` (${p.vitalId})` : ""} with{" "}
+              <span className="font-semibold">{p.medicalRecords.length}</span> medical record
+              {p.medicalRecords.length === 1 ? "" : "s"}.
+            </div>
+          ) : null}
           {saveStatus ? (
             <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">{saveStatus}</div>
           ) : null}
         </CardContent>
       </Card>
 
-      {p && latest ? (
+      {p ? (
         <>
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -379,26 +387,36 @@ export function DoctorDashboard() {
                 <CardDescription>Most recent recorded measurements</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: "Blood Pressure", value: latest.bloodPressure },
-                    { label: "Heart Rate", value: `${latest.heartRate} bpm` },
-                    { label: "O2 Saturation", value: `${latest.oxygenSaturation}%` },
-                    { label: "Temperature", value: latest.temperature },
-                    { label: "Height", value: `${latest.heightCm} cm` },
-                    { label: "Weight", value: `${latest.weightKg} kg` }
-                  ].map((vital) => (
-                    <div key={vital.label} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{vital.label}</p>
-                      <p className="mt-0.5 text-sm font-bold text-slate-900">{vital.value}</p>
-                    </div>
-                  ))}
-                </div>
+                {latest ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Blood Pressure", value: latest.bloodPressure },
+                      { label: "Heart Rate", value: `${latest.heartRate} bpm` },
+                      { label: "O2 Saturation", value: `${latest.oxygenSaturation}%` },
+                      { label: "Temperature", value: latest.temperature },
+                      { label: "Height", value: `${latest.heightCm} cm` },
+                      { label: "Weight", value: `${latest.weightKg} kg` }
+                    ].map((vital) => (
+                      <div key={vital.label} className="rounded-xl bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-wide text-slate-500">{vital.label}</p>
+                        <p className="mt-0.5 text-sm font-bold text-slate-900">{vital.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                    No vitals recorded yet for this patient.
+                  </div>
+                )}
                 <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-[10px] uppercase tracking-wide text-amber-600 mb-2">Allergies</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.allergies.map((allergy) => <Badge key={allergy} variant="warning">{allergy}</Badge>)}
-                  </div>
+                  {p.allergies.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.allergies.map((allergy) => <Badge key={allergy} variant="warning">{allergy}</Badge>)}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-amber-700">No allergies recorded yet.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -413,15 +431,21 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {latest.medications.map((medication, index) => (
-                  <div key={`${medication}-${index}`} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="h-2 w-2 rounded-full bg-teal-500" />
-                      <p className="text-sm font-medium text-slate-900">{medication}</p>
+                {latest?.medications.length ? (
+                  latest.medications.map((medication, index) => (
+                    <div key={`${medication}-${index}`} className="flex items-center justify-between rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-2 w-2 rounded-full bg-teal-500" />
+                        <p className="text-sm font-medium text-slate-900">{medication}</p>
+                      </div>
+                      <Badge variant="secondary">Active</Badge>
                     </div>
-                    <Badge variant="secondary">Active</Badge>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                    No medications recorded yet.
                   </div>
-                ))}
+                )}
               </CardContent>
             </Card>
 
@@ -433,12 +457,18 @@ export function DoctorDashboard() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {p.conditions.map((condition, index) => (
-                  <div key={`${condition}-${index}`} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
-                    <div className="h-2 w-2 rounded-full bg-rose-400" />
-                    <p className="text-sm font-medium text-slate-900">{condition}</p>
+                {p.conditions.length > 0 ? (
+                  p.conditions.map((condition, index) => (
+                    <div key={`${condition}-${index}`} className="flex items-center gap-3 rounded-xl border border-border/60 bg-slate-50 px-4 py-3">
+                      <div className="h-2 w-2 rounded-full bg-rose-400" />
+                      <p className="text-sm font-medium text-slate-900">{condition}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                    No conditions recorded yet.
                   </div>
-                ))}
+                )}
               </CardContent>
             </Card>
           </div>
