@@ -22,8 +22,10 @@ from app.services.dashboard_service import DashboardService
 from app.services.diagnosis_service import DiagnosisService
 from app.services.forum_service import ForumService
 from app.services.notes_service import NotesService
+from app.services.ocr_service import OCRService
 from app.services.patient_service import PatientService
 from app.services.patterns_service import PatternsService
+from app.services.prescription_storage_service import PrescriptionStorageService
 
 
 def get_user_repository() -> UserRepository:
@@ -66,6 +68,18 @@ def get_visibility_repository() -> VisibilityRepository:
     return VisibilityRepository()
 
 
+def get_ocr_service(
+    settings: Settings = Depends(get_settings),
+) -> OCRService:
+    return OCRService(settings=settings)
+
+
+def get_prescription_storage_service(
+    settings: Settings = Depends(get_settings),
+) -> PrescriptionStorageService:
+    return PrescriptionStorageService(settings=settings)
+
+
 def get_auth_service(
     auth_gateway: SupabaseAuthGateway = Depends(get_supabase_auth_gateway),
     user_repository: UserRepository = Depends(get_user_repository),
@@ -87,6 +101,10 @@ def get_patient_service(
     treatment_repository: TreatmentRepository = Depends(get_treatment_repository),
     medical_history_repository: MedicalHistoryRepository = Depends(get_medical_history_repository),
     visibility_repository: VisibilityRepository = Depends(get_visibility_repository),
+    provider: ClinicalAIProvider = Depends(get_clinical_ai_provider),
+    settings: Settings = Depends(get_settings),
+    ocr_service: OCRService = Depends(get_ocr_service),
+    prescription_storage_service: PrescriptionStorageService = Depends(get_prescription_storage_service),
 ) -> PatientService:
     return PatientService(
         user_repository=user_repository,
@@ -97,6 +115,10 @@ def get_patient_service(
         treatment_repository=treatment_repository,
         medical_history_repository=medical_history_repository,
         visibility_repository=visibility_repository,
+        provider=provider,
+        settings=settings,
+        ocr_service=ocr_service,
+        prescription_storage_service=prescription_storage_service,
     )
 
 

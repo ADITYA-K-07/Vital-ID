@@ -88,12 +88,78 @@ class MedicalHistoryItem(BaseModel):
     created_at: str | None = None
 
 
+class PrescriptionFeatureStatus(BaseModel):
+    enabled: bool = False
+    reason: str | None = None
+    max_file_size_bytes: int = 0
+    allowed_mime_types: list[str] = Field(default_factory=list)
+
+
+class PrescriptionDocumentItem(BaseModel):
+    id: str
+    patient_id: str | None = None
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    storage_bucket: str | None = None
+    storage_path: str | None = None
+    upload_status: str | None = None
+    review_status: str | None = None
+    created_at: str | None = None
+    reviewed_at: str | None = None
+    committed_at: str | None = None
+
+
+class PrescriptionMedicationCandidate(BaseModel):
+    name: str
+    dosage: str | None = None
+    instructions: str | None = None
+    include: bool = True
+
+
+class PrescriptionTreatmentCandidate(BaseModel):
+    text: str
+    include: bool = True
+
+
+class PrescriptionNoteCandidate(BaseModel):
+    text: str
+    include: bool = True
+
+
+class PrescriptionFollowUpCandidate(BaseModel):
+    title: str | None = None
+    scheduled_date: str | None = None
+    provider: str | None = None
+    include: bool = True
+
+
+class PrescriptionPreviewResponse(BaseModel):
+    prescription: PrescriptionDocumentItem
+    raw_text: str
+    medications: list[PrescriptionMedicationCandidate] = Field(default_factory=list)
+    treatments: list[PrescriptionTreatmentCandidate] = Field(default_factory=list)
+    notes: list[PrescriptionNoteCandidate] = Field(default_factory=list)
+    follow_up: PrescriptionFollowUpCandidate | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PrescriptionCommitRequest(BaseModel):
+    prescription_id: str
+    medications: list[PrescriptionMedicationCandidate] = Field(default_factory=list)
+    treatments: list[PrescriptionTreatmentCandidate] = Field(default_factory=list)
+    notes: list[PrescriptionNoteCandidate] = Field(default_factory=list)
+    follow_up: PrescriptionFollowUpCandidate | None = None
+
+
 class PatientDashboardResponse(BaseModel):
     profile: PatientProfileItem
     consultations: list[ConsultationItem] = Field(default_factory=list)
     medical_records: list[MedicalRecordItem] = Field(default_factory=list)
     treatment_history: list[TreatmentHistoryItem] = Field(default_factory=list)
     medical_history: list[MedicalHistoryItem] = Field(default_factory=list)
+    prescriptions: list[PrescriptionDocumentItem] = Field(default_factory=list)
+    prescription_feature: PrescriptionFeatureStatus = Field(default_factory=PrescriptionFeatureStatus)
     field_permissions: FieldPermissions = Field(default_factory=FieldPermissions)
     alerts: list[AlertItem] = Field(default_factory=list)
     psychological_info: str | None = None
@@ -111,6 +177,8 @@ class PatientFullProfileResponse(BaseModel):
     consultations: list[ConsultationItem] = Field(default_factory=list)
     treatment_history: list[TreatmentHistoryItem] = Field(default_factory=list)
     medical_history: list[MedicalHistoryItem] = Field(default_factory=list)
+    prescriptions: list[PrescriptionDocumentItem] = Field(default_factory=list)
+    prescription_feature: PrescriptionFeatureStatus = Field(default_factory=PrescriptionFeatureStatus)
     field_permissions: FieldPermissions = Field(default_factory=FieldPermissions)
 
 

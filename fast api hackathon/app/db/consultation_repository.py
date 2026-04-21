@@ -19,3 +19,12 @@ class ConsultationRepository:
             descending=False,
             limit=limit,
         )
+
+    async def create_entry(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await data_client.insert("consultations", payload=payload)
+        return rows[0] if rows else None

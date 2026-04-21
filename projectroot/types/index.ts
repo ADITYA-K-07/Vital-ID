@@ -124,6 +124,25 @@ export interface Alert {
   message: string;
 }
 
+export interface PrescriptionDocument {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadStatus: string;
+  reviewStatus: string;
+  createdAt?: string;
+  reviewedAt?: string;
+  committedAt?: string;
+}
+
+export interface PrescriptionFeature {
+  enabled: boolean;
+  reason?: string;
+  maxFileSizeBytes: number;
+  allowedMimeTypes: string[];
+}
+
 export interface DashboardData {
   demoMode: boolean;
   viewer: ViewerContext;
@@ -134,6 +153,8 @@ export interface DashboardData {
   medicalRecords: MedicalRecord[];
   treatmentHistory: TreatmentRecord[];
   medicalHistory: MedicalHistoryEntry[];
+  prescriptions: PrescriptionDocument[];
+  prescriptionFeature: PrescriptionFeature;
   fieldPermissions: FieldPermissions;
   alerts: Alert[];
   psychologicalInfo?: string;

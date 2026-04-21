@@ -1,5 +1,6 @@
 import re
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
 from app.schemas.ai import AnalyzePatientResponse, RiskItem, UrgencyLevel
@@ -38,6 +39,10 @@ class MockClinicalAIProvider:
         "infection": "Possible infection",
         "anxiety": "Stress or anxiety response",
     }
+
+    medication_markers = ("mg", "mcg", "ml", "tablet", "tab", "capsule", "cap", "syrup", "drop", "inhaler")
+    treatment_keywords = ("therapy", "rest", "hydration", "steam", "exercise", "diet", "physiotherapy", "nebulization")
+    note_keywords = ("note", "advice", "instruction", "monitor", "avoid", "return if", "warning")
 
     async def analyze_patient(self, patient_bundle: dict[str, Any]) -> dict[str, Any]:
         patient = patient_bundle["patient"]
@@ -134,6 +139,64 @@ class MockClinicalAIProvider:
             stored_insight_id=None,
             alert_created=False,
         ).model_dump(mode="json")
+
+    async def extract_prescription_structured_data(
+        self,
+        *,
+        ocr_text: str,
+        patient_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        lines = [line.strip(" -\t") for line in ocr_text.splitlines() if line.strip()]
+        medications: list[dict[str, Any]] = []
+        treatments: list[str] = []
+        notes: list[str] = []
+        warnings: list[str] = []
+
+        for line in lines:
+            normalized = line.lower()
+            if self._looks_like_medication_line(normalized):
+                medications.extend(self._extract_medications_from_line(line))
+                continue
+            if any(keyword in normalized for keyword in self.treatment_keywords):
+                treatments.append(line)
+                continue
+            if any(keyword in normalized for keyword in self.note_keywords):
+                notes.append(line)
+
+        follow_up = self._extract_follow_up(lines)
+
+        deduped_medications: list[dict[str, Any]] = []
+        seen_medications: set[str] = set()
+        for medication in medications:
+            key = "|".join(
+                [
+                    str(medication.get("name") or "").lower(),
+                    str(medication.get("dosage") or "").lower(),
+                    str(medication.get("instructions") or "").lower(),
+                ]
+            )
+            if key in seen_medications:
+                continue
+            seen_medications.add(key)
+            deduped_medications.append(medication)
+
+        treatments = list(dict.fromkeys(treatments))
+        notes = list(dict.fromkeys(notes))
+
+        if not deduped_medications:
+            warnings.append("No clear medication candidates were detected from the OCR text.")
+        if not treatments and not notes:
+            warnings.append("Treatment and doctor-note extraction was low confidence. Please review the OCR text carefully.")
+        if patient_context and patient_context.get("full_name"):
+            warnings.append(f"Review the extraction before saving it into {patient_context['full_name']}'s record.")
+
+        return {
+            "medications": deduped_medications,
+            "treatments": [{"text": item} for item in treatments],
+            "notes": [{"text": item} for item in notes],
+            "follow_up": follow_up,
+            "warnings": warnings,
+        }
 
     async def analyze_notes(
         self,
@@ -391,3 +454,82 @@ class MockClinicalAIProvider:
     def _extract_bp_values(self, text: str) -> list[tuple[int, int]]:
         matches = re.findall(r"(\d{2,3})\s*/\s*(\d{2,3})", text)
         return [(int(sys), int(dia)) for sys, dia in matches]
+
+    def _looks_like_medication_line(self, normalized_line: str) -> bool:
+        return (
+            normalized_line.startswith(("rx", "medicine", "medication"))
+            or any(marker in normalized_line for marker in self.medication_markers)
+        )
+
+    def _extract_medications_from_line(self, line: str) -> list[dict[str, Any]]:
+        cleaned = re.sub(r"^(rx|medicine|medication)\s*[:\-]?\s*", "", line, flags=re.IGNORECASE)
+        parts = [part.strip(" -") for part in re.split(r"[;,]", cleaned) if part.strip()]
+        medications: list[dict[str, Any]] = []
+
+        for part in parts:
+            match = re.match(
+                r"(?P<name>[A-Za-z][A-Za-z0-9 +/()'-]{1,80}?)"
+                r"(?:\s+(?P<dosage>\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml)))?"
+                r"(?:\s+(?P<instructions>.+))?$",
+                part,
+                flags=re.IGNORECASE,
+            )
+            if not match:
+                continue
+
+            name = (match.group("name") or "").strip()
+            dosage = (match.group("dosage") or "").strip() or None
+            instructions = (match.group("instructions") or "").strip() or None
+            if not name:
+                continue
+
+            medications.append(
+                {
+                    "name": name,
+                    "dosage": dosage,
+                    "instructions": instructions,
+                }
+            )
+
+        return medications
+
+    def _extract_follow_up(self, lines: list[str]) -> dict[str, Any] | None:
+        provider_match = re.search(
+            r"(Dr\.?\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)",
+            "\n".join(lines),
+        )
+        provider = provider_match.group(1) if provider_match else None
+
+        for line in lines:
+            normalized = line.lower()
+            if "follow" not in normalized and "review" not in normalized:
+                continue
+
+            date_match = re.search(
+                r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})",
+                line,
+            )
+            scheduled_date = self._normalize_date(date_match.group(1)) if date_match else None
+            title = "Follow-up Visit"
+            if "review" in normalized:
+                title = "Review Visit"
+
+            return {
+                "title": title,
+                "scheduled_date": scheduled_date,
+                "provider": provider,
+            }
+
+        return None
+
+    def _normalize_date(self, value: str | None) -> str | None:
+        if not value:
+            return None
+
+        candidates = ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d %b %Y", "%d %B %Y")
+        for pattern in candidates:
+            try:
+                return datetime.strptime(value, pattern).date().isoformat()
+            except ValueError:
+                continue
+        return value

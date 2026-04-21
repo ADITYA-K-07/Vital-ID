@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.auth.dependencies import get_current_user, require_roles
 from app.auth.models import CurrentUser, UserRole
@@ -9,6 +9,8 @@ from app.db.supabase import (
 )
 from app.schemas.patient import (
     DoctorDiagnosisCreateRequest,
+    PrescriptionCommitRequest,
+    PrescriptionPreviewResponse,
     DoctorTreatmentCreateRequest,
     PatientMedicalHistoryCreateRequest,
     PatientFullProfileResponse,
@@ -73,6 +75,38 @@ async def patch_my_identity(
         current_user=current_user,
         payload=payload,
         data_client=data_client,
+    )
+
+
+@router.post("/patients/me/prescriptions/preview", response_model=PrescriptionPreviewResponse)
+async def preview_my_prescription(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(require_roles(UserRole.PATIENT)),
+    data_client: SupabaseDataClient = Depends(get_request_data_client),
+    service_data_client: SupabaseDataClient | None = Depends(get_service_data_client),
+    patient_service: PatientService = Depends(get_patient_service),
+) -> PrescriptionPreviewResponse:
+    return await patient_service.preview_patient_prescription(
+        current_user=current_user,
+        upload=file,
+        data_client=data_client,
+        service_data_client=service_data_client,
+    )
+
+
+@router.post("/patients/me/prescriptions/commit", response_model=PatientIdentityResponse)
+async def commit_my_prescription(
+    payload: PrescriptionCommitRequest,
+    current_user: CurrentUser = Depends(require_roles(UserRole.PATIENT)),
+    data_client: SupabaseDataClient = Depends(get_request_data_client),
+    service_data_client: SupabaseDataClient | None = Depends(get_service_data_client),
+    patient_service: PatientService = Depends(get_patient_service),
+) -> PatientIdentityResponse:
+    return await patient_service.commit_patient_prescription(
+        current_user=current_user,
+        payload=payload,
+        data_client=data_client,
+        service_data_client=service_data_client,
     )
 
 

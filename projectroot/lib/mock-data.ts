@@ -202,5 +202,12 @@ export const mockDashboardData: DashboardData = {
       facility: "Apollo Pharmacy, Pune",
       doctorName: "Dr. Priya Nair"
     }
-  ]
+  ],
+  prescriptions: [],
+  prescriptionFeature: {
+    enabled: false,
+    reason: "Prescription upload is disabled in demo mode.",
+    maxFileSizeBytes: 10 * 1024 * 1024,
+    allowedMimeTypes: ["image/jpeg", "image/png", "application/pdf"]
+  }
 };

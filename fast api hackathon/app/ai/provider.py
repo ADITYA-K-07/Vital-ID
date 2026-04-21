@@ -10,6 +10,14 @@ class ClinicalAIProvider(Protocol):
     async def analyze_patient(self, patient_bundle: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    async def extract_prescription_structured_data(
+        self,
+        *,
+        ocr_text: str,
+        patient_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ...
+
     async def analyze_notes(
         self,
         *,

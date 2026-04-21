@@ -84,6 +84,20 @@ class PatientRepository:
         rows = await data_client.insert("medical_records", payload=payload)
         return rows[0] if rows else None
 
+    async def get_latest_medical_record(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        patient_id: str,
+    ) -> dict[str, Any] | None:
+        return await data_client.select_one(
+            "medical_records",
+            columns="*",
+            filters={"patient_id": f"eq.{patient_id}"},
+            order_by="visit_date",
+            descending=True,
+        )
+
     async def create_patient(
         self,
         data_client: SupabaseDataClient,
@@ -212,3 +226,38 @@ class PatientRepository:
             order_by="created_at",
             limit=limit,
         )
+
+    async def get_prescription_by_id(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        prescription_id: str,
+    ) -> dict[str, Any] | None:
+        return await data_client.select_one(
+            "prescriptions",
+            columns="*",
+            filters={"id": f"eq.{prescription_id}"},
+        )
+
+    async def create_prescription(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await data_client.insert("prescriptions", payload=payload)
+        return rows[0] if rows else None
+
+    async def update_prescription(
+        self,
+        data_client: SupabaseDataClient,
+        *,
+        prescription_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await data_client.update_rows(
+            "prescriptions",
+            filters={"id": f"eq.{prescription_id}"},
+            payload=payload,
+        )
+        return rows[0] if rows else None

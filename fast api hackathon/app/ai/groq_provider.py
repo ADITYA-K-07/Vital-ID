@@ -57,6 +57,51 @@ Return only valid JSON with:
             "alert_created": False,
         }
 
+    async def extract_prescription_structured_data(
+        self,
+        *,
+        ocr_text: str,
+        patient_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        prompt = f"""
+You are a medical AI assistant extracting structured data from OCR text for a patient-reviewed prescription workflow.
+
+Patient context:
+{json.dumps(patient_context or {}, indent=2)}
+
+OCR text:
+{ocr_text}
+
+Return only valid JSON with this exact shape:
+{{
+  "medications": [
+    {{
+      "name": "Medication name",
+      "dosage": "Optional dosage",
+      "instructions": "Optional instructions"
+    }}
+  ],
+  "treatments": [
+    {{
+      "text": "Treatment text candidate"
+    }}
+  ],
+  "notes": [
+    {{
+      "text": "Doctor note text candidate"
+    }}
+  ],
+  "follow_up": {{
+    "title": "Optional title",
+    "scheduled_date": "YYYY-MM-DD or null",
+    "provider": "Optional provider"
+  }},
+  "warnings": ["Any ambiguity or low-confidence warnings"]
+}}
+If a section is missing, return an empty list or null for follow_up.
+"""
+        return await self._complete_json(prompt=prompt)
+
     async def analyze_notes(
         self,
         *,

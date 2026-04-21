@@ -7,6 +7,8 @@ import type {
   ForumComment,
   MedicalHistoryEntry,
   MedicalRecord,
+  PrescriptionDocument,
+  PrescriptionFeature,
   ProfileSummary,
   TreatmentRecord,
   ViewerContext
@@ -80,6 +82,70 @@ export interface ApiAlertItem {
   status?: string | null;
   created_at?: string | null;
   is_read?: boolean | null;
+}
+
+export interface ApiPrescriptionFeature {
+  enabled?: boolean;
+  reason?: string | null;
+  max_file_size_bytes?: number;
+  allowed_mime_types?: string[];
+}
+
+export interface ApiPrescriptionDocumentItem {
+  id: string;
+  patient_id?: string | null;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_bucket?: string | null;
+  storage_path?: string | null;
+  upload_status?: string | null;
+  review_status?: string | null;
+  created_at?: string | null;
+  reviewed_at?: string | null;
+  committed_at?: string | null;
+}
+
+export interface ApiPrescriptionMedicationCandidate {
+  name: string;
+  dosage?: string | null;
+  instructions?: string | null;
+  include?: boolean;
+}
+
+export interface ApiPrescriptionTreatmentCandidate {
+  text: string;
+  include?: boolean;
+}
+
+export interface ApiPrescriptionNoteCandidate {
+  text: string;
+  include?: boolean;
+}
+
+export interface ApiPrescriptionFollowUpCandidate {
+  title?: string | null;
+  scheduled_date?: string | null;
+  provider?: string | null;
+  include?: boolean;
+}
+
+export interface ApiPrescriptionPreviewResponse {
+  prescription: ApiPrescriptionDocumentItem;
+  raw_text: string;
+  medications: ApiPrescriptionMedicationCandidate[];
+  treatments: ApiPrescriptionTreatmentCandidate[];
+  notes: ApiPrescriptionNoteCandidate[];
+  follow_up?: ApiPrescriptionFollowUpCandidate | null;
+  warnings: string[];
+}
+
+export interface ApiPrescriptionCommitRequest {
+  prescription_id: string;
+  medications: ApiPrescriptionMedicationCandidate[];
+  treatments: ApiPrescriptionTreatmentCandidate[];
+  notes: ApiPrescriptionNoteCandidate[];
+  follow_up?: ApiPrescriptionFollowUpCandidate | null;
 }
 
 export interface ApiFieldPermissions {
@@ -172,6 +238,8 @@ export interface ApiPatientDashboardResponse {
   medical_records: ApiMedicalRecordItem[];
   treatment_history: ApiTreatmentHistoryItem[];
   medical_history: ApiMedicalHistoryItem[];
+  prescriptions?: ApiPrescriptionDocumentItem[];
+  prescription_feature?: ApiPrescriptionFeature;
   field_permissions: ApiFieldPermissions;
   alerts: ApiAlertItem[];
   psychological_info?: string | null;
@@ -189,6 +257,8 @@ export interface ApiPatientFullProfileResponse {
   consultations: ApiConsultationItem[];
   treatment_history: ApiTreatmentHistoryItem[];
   medical_history: ApiMedicalHistoryItem[];
+  prescriptions?: ApiPrescriptionDocumentItem[];
+  prescription_feature?: ApiPrescriptionFeature;
   field_permissions: ApiFieldPermissions;
 }
 
@@ -403,6 +473,29 @@ function mapFieldPermissions(value: ApiFieldPermissions): FieldPermissions {
   };
 }
 
+function mapPrescriptionDocument(value: ApiPrescriptionDocumentItem): PrescriptionDocument {
+  return {
+    id: value.id,
+    originalFilename: value.original_filename,
+    mimeType: value.mime_type,
+    sizeBytes: Number(value.size_bytes ?? 0),
+    uploadStatus: value.upload_status ?? "uploaded",
+    reviewStatus: value.review_status ?? "pending_review",
+    createdAt: value.created_at ?? undefined,
+    reviewedAt: value.reviewed_at ?? undefined,
+    committedAt: value.committed_at ?? undefined
+  };
+}
+
+function mapPrescriptionFeature(value?: ApiPrescriptionFeature | null): PrescriptionFeature {
+  return {
+    enabled: value?.enabled ?? false,
+    reason: value?.reason ?? undefined,
+    maxFileSizeBytes: Number(value?.max_file_size_bytes ?? 10 * 1024 * 1024),
+    allowedMimeTypes: value?.allowed_mime_types ?? ["image/jpeg", "image/png", "application/pdf"]
+  };
+}
+
 export function mapPatientResponseToDashboardData(
   response: ApiPatientDashboardResponse | ApiPatientIdentityResponse,
   viewer: ViewerContext
@@ -419,6 +512,8 @@ export function mapPatientResponseToDashboardData(
     ),
     treatmentHistory: response.treatment_history.map(mapTreatmentRecord),
     medicalHistory: response.medical_history.map(mapMedicalHistoryEntry),
+    prescriptions: (response.prescriptions ?? []).map(mapPrescriptionDocument),
+    prescriptionFeature: mapPrescriptionFeature(response.prescription_feature),
     fieldPermissions: mapFieldPermissions(response.field_permissions),
     alerts: response.alerts.map(mapAlert),
     psychologicalInfo: response.psychological_info ?? undefined
@@ -565,6 +660,28 @@ export async function fetchFastApiJson<T>(
     cache: init.cache ?? "no-store",
     headers: {
       "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(headers ?? {})
+    }
+  });
+
+  if (!response.ok) {
+    const message = await readFastApiErrorMessage(response);
+    throw new Error(`FastAPI ${response.status}: ${message}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export async function fetchFastApiFormData<T>(
+  path: string,
+  options: RequestInit & { accessToken?: string | null } = {}
+): Promise<T> {
+  const { accessToken, headers, ...init } = options;
+  const response = await fetch(buildFastApiUrl(path), {
+    ...init,
+    cache: init.cache ?? "no-store",
+    headers: {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(headers ?? {})
     }

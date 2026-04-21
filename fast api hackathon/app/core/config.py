@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     ai_create_alerts_enabled: bool = True
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
+    prescription_storage_bucket: str = "prescriptions"
+    prescription_upload_max_bytes: int = 10 * 1024 * 1024
+    ocr_api_url: str | None = None
+    ocr_api_key: str | None = None
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -77,6 +81,20 @@ class Settings(BaseSettings):
     @property
     def has_service_role_key(self) -> bool:
         return not _is_placeholder_value(self.supabase_service_role_key)
+
+    @property
+    def has_ocr_api(self) -> bool:
+        return not _is_placeholder_value(self.ocr_api_url)
+
+    @property
+    def has_prescription_storage(self) -> bool:
+        return self.has_service_role_key and not _is_placeholder_value(
+            self.prescription_storage_bucket
+        )
+
+    @property
+    def prescription_feature_enabled(self) -> bool:
+        return self.has_prescription_storage and self.has_ocr_api
 
 
 @lru_cache
