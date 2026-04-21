@@ -80,6 +80,14 @@ def get_prescription_storage_service(
     return PrescriptionStorageService(settings=settings)
 
 
+def get_clinical_ai_provider(
+    settings: Settings = Depends(get_settings),
+) -> ClinicalAIProvider:
+    if settings.is_groq_ai and settings.groq_api_key:
+        return GroqClinicalAIProvider(settings=settings)
+    return MockClinicalAIProvider()
+
+
 def get_auth_service(
     auth_gateway: SupabaseAuthGateway = Depends(get_supabase_auth_gateway),
     user_repository: UserRepository = Depends(get_user_repository),
@@ -142,14 +150,6 @@ def get_alert_service(
     alert_repository: AlertRepository = Depends(get_alert_repository),
 ) -> AlertService:
     return AlertService(alert_repository=alert_repository)
-
-
-def get_clinical_ai_provider(
-    settings: Settings = Depends(get_settings),
-) -> ClinicalAIProvider:
-    if settings.is_groq_ai and settings.groq_api_key:
-        return GroqClinicalAIProvider(settings=settings)
-    return MockClinicalAIProvider()
 
 
 def get_ai_service(
